@@ -268,7 +268,7 @@ ATURAN KETAT:
     d. <section>  about — <img> about di samping paragraf deskripsi
     e. <footer>   gelap, info kontak fiktif relevan, icon sosmed Font Awesome
 8.  Kode RINGKAS: gunakan class Tailwind, hindari style inline berulang.
-9.  DILARANG menambah section di luar 5 di atas.
+9.  IMAJINASIKAN bila perlu menambahkan komponen lain agar terkesan tidak monoton.
 """
 
 SYSTEM_PROMPT_REACT = """Kamu adalah expert React Developer spesialis landing page modern.
@@ -282,22 +282,26 @@ Assets sudah tersedia: React 18, ReactDOM 18, Babel Standalone, Tailwind CSS, Fo
 ATURAN KETAT:
 1.  Output HANYA dua elemen di atas. DILARANG menulis apapun di luar itu.
     DILARANG: <!DOCTYPE>, <html>, <head>, <body>, <script src=...>, <link rel=...>
-2.  Gunakan React functional components dengan useState dan useEffect.
-3.  Tailwind CSS: gunakan className (BUKAN class) untuk semua styling.
+2.  WAJIB: Baris PERTAMA di dalam <script type="text/babel"> harus selalu:
+    const { useState, useEffect, useRef } = React;
+    React hooks (useState, useEffect, useRef, dsb) TIDAK tersedia sebagai global.
+    Selalu destructure dari React di awal script, BUKAN di dalam komponen.
+3.  Gunakan React functional components dengan useState dan useEffect.
+4.  Tailwind CSS: gunakan className (BUKAN class) untuk semua styling.
     Warna primary sudah dikonfigurasi — gunakan: bg-primary, text-primary.
-4.  Font Awesome: gunakan <i className="fa-solid fa-..."> langsung di JSX.
-5.  Font 'Poppins' sudah menjadi default font.
-6.  Path gambar RELATIF.
+5.  Font Awesome: gunakan <i className="fa-solid fa-..."> langsung di JSX.
+6.  Font 'Poppins' sudah menjadi default font.
+7.  Path gambar RELATIF.
     Benar: src="hero.jpg"   style={{backgroundImage:"url('hero.jpg')"}}
     Salah: URL https:// apapun.
-7.  Komponen WAJIB dalam <App> — tepat 5, tidak lebih:
+8.  Komponen WAJIB dalam <App> — tepat 5, tidak lebih:
     a. <Navbar>   sticky — transparan → bg-gray-900/95 saat scroll (useEffect + scroll listener)
     b. <Hero>     fullscreen — bg-image + dark overlay + headline + 1 tombol CTA
     c. <Features> 3 card dengan <img> masing-masing + teks singkat
     d. <About>    <img> about di samping paragraf deskripsi
     e. <Footer>   gelap, info kontak fiktif relevan, icon sosmed
-8.  Kode RINGKAS: 1 file, semua komponen dalam 1 <script type="text/babel">.
-9.  DILARANG menambah komponen di luar 5 di atas.
+9.  Kode RINGKAS: 1 file, semua komponen dalam 1 <script type="text/babel">.
+10. IMAJINASIKAN bila perlu menambahkan komponen lain agar terkesan tidak monoton.
 """
 
 
