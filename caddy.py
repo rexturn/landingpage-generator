@@ -13,6 +13,7 @@ import copy
 import json
 import os
 import subprocess
+import tempfile
 
 CADDY_JSON_PATH = "/etc/caddy/caddy.json"
 
@@ -44,11 +45,38 @@ def _load_config(path: str) -> dict:
 
 
 def _save_config(config: dict, path: str) -> None:
-    """Tulis caddy.json dengan indentasi yang rapi."""
-    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    """
+    Tulis caddy.json dengan indentasi yang rapi.
+    Karena /etc/caddy/ hanya bisa ditulis root, tulis dulu ke temp file
+    lalu salin dengan 'sudo cp'.
+    """
+    content = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+
+    # Jika path di bawah /etc atau tidak bisa ditulis langsung → sudo cp
+    try:
+        # Coba tulis langsung dulu (berguna saat testing)
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except PermissionError:
+        # Tulis ke temp file, lalu salin dengan sudo
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", encoding="utf-8", delete=False
+        ) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            result = subprocess.run(
+                ["sudo", "cp", tmp_path, path],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Gagal menulis {path} (sudo cp):\n"
+                    f"{(result.stderr or result.stdout).strip()}"
+                )
+        finally:
+            os.unlink(tmp_path)
 
 
 def _get_server(config: dict) -> dict:
