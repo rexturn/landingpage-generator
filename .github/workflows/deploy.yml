@@ -36,6 +36,12 @@ jobs:
       - name: Add VPS to known hosts
         run: ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
 
+      - name: Test SSH connection
+        run: |
+          ssh -vvv -o StrictHostKeyChecking=no \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "echo 'SSH OK — logged in as: '$(whoami)" 2>&1 | tail -30
+
       - name: Git pull
         run: |
           ssh -o StrictHostKeyChecking=no \
