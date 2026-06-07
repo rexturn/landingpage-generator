@@ -190,7 +190,7 @@ def setup_subdomain(
     subdomain:   str,
     base_domain: str,
     target:      str = "",  # "" → auto-detect public IP
-    proxied:     bool = True,
+    proxied:     bool = False,
 ) -> dict:
     """
     One-call wrapper:

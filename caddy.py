@@ -95,6 +95,21 @@ def _get_server(config: dict) -> dict:
     return servers[next(iter(servers))]
 
 
+def _add_tls_subject(config: dict, fqdn: str) -> None:
+    """
+    Tambahkan fqdn ke subjects di tls.automation.policies[0] jika sudah ada.
+    Jika belum ada sama sekali, biarkan — Caddy akan auto-issue via default policy.
+    """
+    try:
+        policies = config["apps"]["tls"]["automation"]["policies"]
+        if policies:
+            subjects = policies[0].setdefault("subjects", [])
+            if fqdn not in subjects:
+                subjects.append(fqdn)
+    except (KeyError, IndexError, TypeError):
+        pass  # Tidak ada TLS automation config — lewati
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def configure_caddy_site(
@@ -142,7 +157,17 @@ def configure_caddy_site(
     else:
         routes.append(new_route)
 
+    # Tambahkan ke TLS subjects agar Caddy issue sertifikat otomatis
+    _add_tls_subject(config, fqdn)
+
     _save_config(config, caddy_json_path)
+
+    # ── Izin baca web root untuk user Caddy ───────────────────────────────────
+    # Caddy berjalan sebagai user 'caddy'; pastikan folder output bisa dibaca.
+    subprocess.run(
+        ["sudo", "chmod", "-R", "o+rX", web_root],
+        capture_output=True,
+    )
 
     # ── Validate ──────────────────────────────────────────────────────────────
     validate = subprocess.run(
