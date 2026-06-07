@@ -114,6 +114,32 @@ def parse_filename(name: str) -> str:
     name = re.sub(r"_+", "_", name)
     return name.strip("_")
 
+
+def generate_domain_slug(api_key: str, model: str, project_name: str) -> str:
+    """
+    Gunakan AI untuk generate domain slug yang bersih dari nama proyek.
+    Contoh: "Toko Baju Online" → "tokobaju" atau "bajustore"
+    Fallback: hapus non-alfanumerik, lowercase, tanpa pemisah.
+    """
+    system = "You are a domain name generator. Reply with only the slug, nothing else."
+    user = (
+        f"Create a short, memorable domain slug for a landing page named: '{project_name}'. "
+        "Rules: lowercase letters and numbers only (a-z, 0-9), hyphens allowed, "
+        "NO underscores, NO spaces, max 20 characters. "
+        "Reply ONLY with the slug."
+    )
+    try:
+        raw  = call_ai(api_key, model, system, user, max_tokens=20)
+        slug = re.sub(r"[^a-z0-9-]", "", raw.strip().lower())[:20].strip("-")
+        if slug:
+            return slug
+    except Exception:
+        pass
+    # Fallback: gabung huruf/angka saja
+    fallback = re.sub(r"[^a-z0-9]", "", project_name.lower())[:20]
+    return fallback or "landingpage"
+
+
 def is_duplicate(output_dir: str, filename_base: str) -> bool:
     return os.path.isdir(os.path.join(output_dir, filename_base))
 

@@ -34,13 +34,14 @@ sys.path.insert(0, _dir)
 
 from generator import (
     load_env, parse_filename, is_duplicate,
+    generate_domain_slug,
     call_ai, analyze_prompt, extract_code,
     setup_project_dir, copy_photos_to_project,
     save_project_html, build_html_prompt,
     copy_assets_to_project, STATIC_DIR,
     get_system_prompt, SYSTEM_PROMPT,
 )
-from cloudflare import setup_subdomain
+from cloudflare import setup_subdomain, find_existing_record, get_zone_id
 from caddy import configure_caddy_site
 
 # ════════════════════════════════════════════════════════════
@@ -288,23 +289,51 @@ def make_bot(env: dict):
 
         # ── STEP 1: nama proyek ───────────────────────────────────────────────
         if state == S_NAME:
-            filename_base = parse_filename(text)
-            if not filename_base:
+            raw_text = text.strip()
+            if not re.search(r"[a-zA-Z0-9]", raw_text):
                 bot.send_message(chat_id,
                     "⚠️ Nama tidak valid. Gunakan huruf dan angka.\n"
                     "Coba lagi:"
                 ); return
-            if is_duplicate(output_dir, filename_base):
-                bot.send_message(chat_id,
-                    f"⚠️ Proyek *{filename_base}* sudah ada.\n"
-                    "Gunakan nama lain:"
-                ); return
-            session["raw_name"]      = text
-            session["filename_base"] = filename_base
+
+            # Generate slug bersih via AI (tanpa underscore/spasi)
+            bot.send_message(chat_id, "⏳ _Membuat nama domain yang cocok..._")
+            slug = generate_domain_slug(api_key, model, raw_text)
+
+            # ── Validasi tabrakan: folder lokal + DNS ─────────────────────────
+            base_slug = slug
+            counter   = 1
+            _zid_cache: list = []          # cache zone_id agar tidak lookup 2x
+            while True:
+                # 1. Cek folder lokal
+                if is_duplicate(output_dir, slug):
+                    slug = f"{base_slug}{counter}"; counter += 1; continue
+                # 2. Cek DNS Cloudflare
+                if cf_enabled:
+                    try:
+                        if not _zid_cache:
+                            _zid_cache.append(
+                                cf_zone_id or get_zone_id(
+                                    cf_api_token, domain, cf_account_id or None
+                                )
+                            )
+                        fqdn = f"{slug}.{domain}"
+                        if find_existing_record(cf_api_token, _zid_cache[0], fqdn):
+                            slug = f"{base_slug}{counter}"; counter += 1; continue
+                    except Exception:
+                        pass   # jika CF gagal, lanjut tanpa DNS check
+                break
+            # ─────────────────────────────────────────────────────────────────
+
+            session["raw_name"]      = raw_text
+            session["filename_base"] = slug
             session["state"]         = S_HERO
+
+            suffix_note = f" _(auto: `{slug}` sudah dipakai, diganti)_" if slug != base_slug else ""
             bot.send_message(chat_id,
-                f"✅ Nama proyek: *{text}*\n"
-                f"📁 Folder: `{output_dir}/{filename_base}/`\n\n"
+                f"✅ Nama proyek: *{raw_text}*\n"
+                f"🌐 Domain    : `{slug}.{domain}`{suffix_note}\n"
+                f"📁 Folder    : `{output_dir}/{slug}/`\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "*STEP 2 — Upload Foto*\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
