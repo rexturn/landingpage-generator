@@ -18,6 +18,7 @@ import sys
 import re
 import tempfile
 import threading
+import traceback
 import requests as req
 
 try:
@@ -43,6 +44,12 @@ from generator import (
 )
 from cloudflare import setup_subdomain, find_existing_record, get_zone_id
 from caddy import configure_caddy_site, remove_caddy_site
+
+
+def _log_error(context: str, exc: Exception) -> None:
+    """Cetak detail error ke stdout/log server — TIDAK dikirim ke user."""
+    print(f"[ERROR] {context}: {exc}", flush=True)
+    traceback.print_exc()
 
 # ════════════════════════════════════════════════════════════
 #  STATES & SESSION
@@ -396,7 +403,7 @@ def make_bot(env: dict):
                     # ── Caddy web server config ───────────────────────────
                     if caddy_enabled:
                         bot.send_message(chat_id,
-                            "🔧 *Mengatur Caddy web server...*"
+                            "🔧 *Mengatur Domain web server...*"
                         )
                         try:
                             web_root     = os.path.abspath(project_dir)
@@ -406,27 +413,24 @@ def make_bot(env: dict):
                                 caddy_json_path = caddy_json,
                             )
                             caddy_msg = (
-                                f"\n\n🔧 *Caddy berhasil dikonfigurasi!*\n"
+                                f"\n\n🔧 *Domain berhasil dikonfigurasi!*\n"
                                 f"  Site  : `{caddy_result['fqdn']}`\n"
                                 f"  Root  : `{caddy_result['web_root']}`\n"
                                 f"  Status: {caddy_result['action']}"
                             )
                         except Exception as caddy_err:
-                            err_msg = str(caddy_err)
-                            # Jika domain invalid (SSL/karakter) → pastikan sudah di-rollback
-                            # (configure_caddy_site sudah rollback, tapi coba hapus untuk berjaga)
-                            if "tidak valid untuk SSL" in err_msg or "di-rollback" in err_msg:
+                            _log_error(f"caddy configure_caddy_site fqdn={fn_base}.{domain}", caddy_err)
+                            err_str = str(caddy_err)
+                            # Bersihkan entri caddy.json jika perlu (sudah di-rollback oleh caddy.py)
+                            if "tidak valid untuk SSL" in err_str or "di-rollback" in err_str:
                                 try:
-                                    removed = remove_caddy_site(
-                                        f"{fn_base}.{domain}", caddy_json
-                                    )
-                                    if removed:
-                                        err_msg += "\n_(Route sudah dihapus dari caddy.json)_"
+                                    remove_caddy_site(f"{fn_base}.{domain}", caddy_json)
                                 except Exception:
                                     pass
                             caddy_msg = (
-                                f"\n\n⚠️ *Caddy config gagal:*\n"
-                                f"`{err_msg[:800]}`"
+                                "\n\n⚠️ *Konfigurasi web server gagal.*\n"
+                                "_Halaman sudah dibuat tapi belum bisa diakses online. "
+                                "Hubungi admin untuk bantuan._"
                             )
                     # ─────────────────────────────────────────────────────
 
@@ -453,10 +457,11 @@ def make_bot(env: dict):
                                 f"  Proxy  : {'✅ aktif (Cloudflare CDN)' if dns['proxied'] else '⬜ bypass'}"
                             )
                         except Exception as cf_err:
+                            _log_error(f"cloudflare setup_subdomain subdomain={fn_base}", cf_err)
                             dns_msg = (
-                                f"\n\n⚠️ *DNS gagal didaftarkan:*\n"
-                                f"`{str(cf_err)[:200]}`\n"
-                                f"_Daftarkan manual di Cloudflare: `{fn_base}.{domain}`_"
+                                "\n\n⚠️ *Pendaftaran domain gagal.*\n"
+                                f"_Halaman sudah dibuat. Domain `{fn_base}.{domain}` "
+                                "akan aktif setelah dikonfigurasi ulang oleh admin._"
                             )
                     # ─────────────────────────────────────────────────────
 
@@ -482,9 +487,10 @@ def make_bot(env: dict):
                         del sessions[chat_id]
 
                 except Exception as e:
+                    _log_error(f"run_generation chat_id={chat_id}", e)
                     bot.send_message(chat_id,
-                        f"❌ *Error saat generate:*\n`{str(e)}`\n\n"
-                        "Ketik /start untuk coba lagi."
+                        "❌ *Terjadi kesalahan saat membuat landing page.*\n"
+                        "Silakan coba lagi dengan ketik /start."
                     )
                     cleanup_tmp(session)
                     if chat_id in sessions:
@@ -552,7 +558,9 @@ def make_bot(env: dict):
             session["tmp_files"].append(tmp_path)
 
         except Exception as e:
-            bot.send_message(chat_id, f"❌ Gagal mengunduh foto: {e}"); return
+                bot.send_message(chat_id, "❌ Gagal mengunduh foto. Coba kirim ulang.")
+                _log_error(f"download_telegram_file chat_id={chat_id}", e)
+                return
 
         # Tentukan role
         if state == S_HERO:
