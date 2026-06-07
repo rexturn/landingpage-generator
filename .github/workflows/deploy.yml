@@ -55,7 +55,7 @@ jobs:
 
             # ── 2. Install / update dependencies ─────────────────────────
             echo "--> Install dependencies..."
-            python3 -m pip install -r requirements.txt -q
+            python3 -m pip install -r requirements.txt -q --break-system-packages
 
             # ── 3. Restart systemd service ────────────────────────────────
             echo "--> Restart service ${{ secrets.SERVICE_NAME }}..."
