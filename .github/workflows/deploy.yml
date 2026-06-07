@@ -41,11 +41,7 @@ jobs:
               -o StrictHostKeyChecking=no \
               -o PasswordAuthentication=no \
               "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-              "cd '${{ secrets.APP_DIR }}' && \
-               git fetch origin main && \
-               git reset --hard origin/main && \
-               echo 'Branch : '$(git branch --show-current) && \
-               echo 'Commit : '$(git log -1 --oneline)"
+              "cd '${{ secrets.APP_DIR }}' && git pull"
 
       - name: Install dependencies
         run: |
