@@ -150,18 +150,20 @@ def setup_project_dir(output_dir: str, filename_base: str) -> str:
 
 def copy_photos_to_project(selected: dict, project_dir: str) -> dict:
     Path(project_dir).mkdir(parents=True, exist_ok=True)
-    result, copied = {}, {}
+    hero_src = selected.get("hero", "")
+    result   = {}
     for key in ["hero", "feature_1", "feature_2", "feature_3", "about"]:
-        src = selected.get(key) or selected.get("hero", "")
+        src = selected.get(key) or hero_src  # fallback ke hero
         if not src or not os.path.isfile(src):
-            result[key] = result.get("hero", "hero.jpg")
+            # Jika bahkan hero tidak ada, buat placeholder name saja
+            result[key] = f"{key}.jpg"
             continue
-        if src in copied:
-            result[key] = copied[src]; continue
-        ext = Path(src).suffix.lower() or ".jpg"
+        # Selalu salin dengan nama standar (key + ext) meskipun src sama persis
+        # dengan hero — ini penting agar AI bisa pakai nama konvensional
+        # (feature_1.jpg, feature_2.jpg, ...) dan file-nya pasti ada.
+        ext      = Path(src).suffix.lower() or ".jpg"
         destname = f"{key}{ext}"
         shutil.copy2(src, os.path.join(project_dir, destname))
-        copied[src] = destname
         result[key] = destname
     return result
 
@@ -291,9 +293,10 @@ ATURAN KETAT:
     Warna primary sudah dikonfigurasi — gunakan: bg-primary, text-primary.
 5.  Font Awesome: gunakan <i className="fa-solid fa-..."> langsung di JSX.
 6.  Font 'Poppins' sudah menjadi default font.
-7.  Path gambar RELATIF.
+7.  PATH GAMBAR: Gunakan PERSIS nama file dari user prompt. JANGAN mengarang nama file.
+    Nama file sudah diberikan di user prompt — salin verbatim ke dalam JSX.
     Benar: src="hero.jpg"   style={{backgroundImage:"url('hero.jpg')"}}
-    Salah: URL https:// apapun.
+    Salah: URL https:// apapun, atau nama file yang tidak ada di user prompt.
 8.  Komponen WAJIB dalam <App> — tepat 5, tidak lebih:
     a. <Navbar>   sticky — transparan → bg-gray-900/95 saat scroll (useEffect + scroll listener)
     b. <Hero>     fullscreen — bg-image + dark overlay + headline + 1 tombol CTA
@@ -301,7 +304,6 @@ ATURAN KETAT:
     d. <About>    <img> about di samping paragraf deskripsi
     e. <Footer>   gelap, info kontak fiktif relevan, icon sosmed
 9.  Kode RINGKAS: 1 file, semua komponen dalam 1 <script type="text/babel">.
-10. IMAJINASIKAN bila perlu menambahkan komponen lain agar terkesan tidak monoton.
 """
 
 
