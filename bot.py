@@ -37,7 +37,8 @@ from generator import (
     call_ai, analyze_prompt, extract_code,
     setup_project_dir, copy_photos_to_project,
     save_project_html, build_html_prompt,
-    SYSTEM_PROMPT,
+    copy_assets_to_project, STATIC_DIR,
+    get_system_prompt, SYSTEM_PROMPT,
 )
 from cloudflare import setup_subdomain
 from caddy import configure_caddy_site
@@ -198,6 +199,7 @@ def make_bot(env: dict):
     cf_dns_target = env.get("CF_DNS_TARGET", "")
     cf_enabled    = bool(cf_api_token)
     max_tokens    = int(env.get("MAX_TOKENS", "6000"))
+    template_type = env.get("TEMPLATE_TYPE", "vanilla").strip().lower()
     # ── Caddy config ─────────────────────────────────────────────────────────
     caddy_json    = env.get("CADDY_JSON", "/etc/caddy/caddy.json")
     caddy_enabled = bool(caddy_json)
@@ -349,10 +351,11 @@ def make_bot(env: dict):
                     prompt   = build_html_prompt(raw_name, description, page_title,
                                                  color_theme, color_name,
                                                  photo_filenames, language)
-                    raw_html = call_ai(api_key, model, SYSTEM_PROMPT, prompt,
-                                       max_tokens=max_tokens)
+                    raw_html = call_ai(api_key, model, get_system_prompt(template_type),
+                                       prompt, max_tokens=max_tokens)
                     html     = extract_code(raw_html)
-                    save_project_html(html, project_dir)
+                    save_project_html(html, project_dir, page_title, color_theme,
+                                      language, template_type)
 
                     # Bersihkan temp files
                     cleanup_tmp(session)

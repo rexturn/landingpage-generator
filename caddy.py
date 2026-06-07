@@ -110,6 +110,27 @@ def _add_tls_subject(config: dict, fqdn: str) -> None:
         pass  # Tidak ada TLS automation config — lewati
 
 
+def _fix_permissions(web_root: str) -> None:
+    """
+    Pastikan Caddy bisa mengakses web_root beserta semua parent directory-nya.
+    - Parent dirs  : sudo chmod o+x  (agar bisa di-traverse)
+    - web_root     : sudo chmod -R o+rX  (agar file bisa dibaca)
+    Berhenti naik jika sudah sampai /home atau root.
+    """
+    # chmod -R o+rX pada folder project itu sendiri
+    subprocess.run(["sudo", "chmod", "-R", "o+rX", web_root], capture_output=True)
+
+    # chmod o+x pada setiap parent directory hingga /home
+    path = os.path.dirname(os.path.abspath(web_root))
+    stop_at = os.path.dirname("/home/")  # yaitu '/'
+    while path and path != stop_at:
+        subprocess.run(["sudo", "chmod", "o+x", path], capture_output=True)
+        parent = os.path.dirname(path)
+        if parent == path:  # sudah di root
+            break
+        path = parent
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def configure_caddy_site(
@@ -163,11 +184,10 @@ def configure_caddy_site(
     _save_config(config, caddy_json_path)
 
     # ── Izin baca web root untuk user Caddy ───────────────────────────────────
-    # Caddy berjalan sebagai user 'caddy'; pastikan folder output bisa dibaca.
-    subprocess.run(
-        ["sudo", "chmod", "-R", "o+rX", web_root],
-        capture_output=True,
-    )
+    # Caddy berjalan sebagai user 'caddy'. Untuk bisa baca file di dalam
+    # /home/user/..., Caddy butuh execute (o+x) di SETIAP direktori parent.
+    # Contoh: /home/rexxy, /home/rexxy/landingpage, .../output harus o+x.
+    _fix_permissions(web_root)
 
     # ── Validate ──────────────────────────────────────────────────────────────
     validate = subprocess.run(

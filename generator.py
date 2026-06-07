@@ -5,7 +5,93 @@ Landing Page Generator — Core Library + CLI
 import os, sys, json, re, shutil, requests
 from pathlib import Path
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+IMAGE_EXTS  = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+STATIC_DIR  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+# ── HTML Templates ────────────────────────────────────────────────────────────
+
+def _html_wrap(body: str, page_title: str, color_theme: str,
+               lang: str = "id", local_assets: bool = False,
+               template: str = "vanilla") -> str:
+    """Bungkus body HTML dengan <head> lengkap. Gunakan asset lokal jika tersedia."""
+    if local_assets:
+        tw  = '<script src="tailwind.min.js"></script>'
+        fa  = '<link rel="stylesheet" href="fa/css/all.min.css">'
+        if template == "react":
+            react_scripts = (
+                '<script src="react/react.production.min.js"></script>\n  '
+                '<script src="react/react-dom.production.min.js"></script>\n  '
+                '<script src="react/babel.min.js"></script>'
+            )
+        else:
+            react_scripts = ""
+    else:
+        tw  = '<script src="https://cdn.tailwindcss.com"></script>'
+        fa  = ('<link rel="stylesheet" href="https://cdnjs.cloudflare.com'
+               '/ajax/libs/font-awesome/6.5.0/css/all.min.css">')
+        if template == "react":
+            react_scripts = (
+                '<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>\n  '
+                '<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>\n  '
+                '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>'
+            )
+        else:
+            react_scripts = ""
+    extra = f"\n  {react_scripts}" if react_scripts else ""
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{page_title}</title>
+  {tw}
+  <script>
+    tailwind.config = {{
+      theme: {{ extend: {{ colors: {{ primary: "{color_theme}" }} }} }}
+    }}
+  </script>
+  {fa}{extra}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {{ font-family: 'Poppins', sans-serif; }}
+    html {{ scroll-behavior: smooth; }}
+  </style>
+</head>
+<body class="bg-white text-gray-800">
+{body}
+</body>
+</html>
+"""
+
+
+def copy_assets_to_project(project_dir: str, template: str = "vanilla") -> bool:
+    """
+    Salin static assets ke project_dir sesuai template type.
+    Returns True jika berhasil. False jika belum di-build (jalankan build_assets.py).
+    """
+    tw_src = os.path.join(STATIC_DIR, "tailwind.min.js")
+    fa_src = os.path.join(STATIC_DIR, "fa")
+    if not (os.path.isfile(tw_src) and
+            os.path.isfile(os.path.join(fa_src, "css", "all.min.css"))):
+        return False
+
+    shutil.copy2(tw_src, os.path.join(project_dir, "tailwind.min.js"))
+    fa_dst = os.path.join(project_dir, "fa")
+    if os.path.exists(fa_dst):
+        shutil.rmtree(fa_dst)
+    shutil.copytree(fa_src, fa_dst)
+
+    # Salin React assets jika template react
+    if template == "react":
+        react_src = os.path.join(STATIC_DIR, "react")
+        if os.path.isdir(react_src):
+            react_dst = os.path.join(project_dir, "react")
+            if os.path.exists(react_dst):
+                shutil.rmtree(react_dst)
+            shutil.copytree(react_src, react_dst)
+
+    return True
 
 def load_env(filepath=".env"):
     env = {}
@@ -53,11 +139,16 @@ def copy_photos_to_project(selected: dict, project_dir: str) -> dict:
         result[key] = destname
     return result
 
-def save_project_html(html_code: str, project_dir: str) -> str:
+def save_project_html(html_body: str, project_dir: str,
+                      page_title: str = "", color_theme: str = "#3B82F6",
+                      lang: str = "id", template: str = "vanilla") -> str:
     Path(project_dir).mkdir(parents=True, exist_ok=True)
+    local    = copy_assets_to_project(project_dir, template)
+    html     = _html_wrap(html_body, page_title, color_theme, lang,
+                          local_assets=local, template=template)
     filepath = os.path.join(project_dir, "index.html")
     with open(filepath, "w", encoding="utf-8") as f:
-        f.write(html_code)
+        f.write(html)
     return filepath
 
 def call_ai(api_key: str, model: str, system_prompt: str, user_prompt: str,
@@ -118,35 +209,75 @@ Respond ONLY with this exact JSON (no extra text):
             "color_theme": "#3B82F6", "color_name": "blue"}
 
 def extract_code(raw: str) -> str:
+    # Response lengkap: ada opening dan closing fence
     match = re.search(r"```(?:html)?\s*([\s\S]*?)```", raw, re.IGNORECASE)
-    return match.group(1).strip() if match else raw.strip()
+    if match:
+        return match.group(1).strip()
+    # Response terpotong (token habis): ada opening fence tapi tidak ada closing
+    match = re.search(r"```(?:html)?\s*([\s\S]+)", raw, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return raw.strip()
 
 SYSTEM_PROMPT = """Kamu adalah expert Front-End Developer spesialis landing page modern.
 
-TUGAS: Buat sebuah file HTML TUNGGAL yang merupakan landing page modern, premium, profesional.
-Gunakan React (via CDN), Tailwind CSS (via CDN), dan desain yang eye-catching.
+TUGAS: Buat HANYA konten di dalam <body> untuk sebuah landing page modern dan profesional.
+Assets sudah tersedia: Tailwind CSS, Font Awesome, Google Font 'Poppins'.
 
 ATURAN KETAT:
-1.  Output HANYA kode HTML lengkap <!DOCTYPE html> sampai </html>. JANGAN ada teks lain.
-2.  React 18 CDN    : https://unpkg.com/react@18/umd/react.production.min.js
-3.  ReactDOM 18 CDN : https://unpkg.com/react-dom@18/umd/react-dom.production.min.js
-4.  Babel Standalone: https://unpkg.com/@babel/standalone/babel.min.js
-5.  Tailwind CSS    : https://cdn.tailwindcss.com
-6.  Font Awesome    : https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css
-7.  Google Fonts sesuai tema.
-8.  Animasi smooth: CSS keyframes + React useState untuk scroll effects.
-9.  Desain: modern, bersih, responsif (mobile-first), premium feel.
-10. Path gambar adalah RELATIF di folder yang SAMA dengan file HTML.
-    Contoh hero background yang BENAR di JSX:
-    <div style={{backgroundImage: `url('hero.jpg')`, backgroundSize:'cover', backgroundPosition:'center'}}>
-11. <title> browser HARUS sama persis dengan page_title di prompt.
-12. Section WAJIB: Navbar sticky, Hero fullscreen, Features (3 card+gambar),
-    How It Works, Gallery/About (gambar about), Testimonial (3 item), CTA, Footer.
-13. Navbar: transparent -> glass morphism saat scroll (scroll event + useState).
-14. Tombol CTA: gradient sesuai warna tema, shadow, hover lift animation.
-15. Footer: gradient gelap, info kontak fiktif relevan, social media icons.
-16. JANGAN pernah mengganti path gambar lokal dengan URL https://.
+1.  Output HANYA elemen HTML mulai dari <nav> sampai </footer>.
+    DILARANG menulis: <!DOCTYPE>, <html>, <head>, <body>, <script src=...>, <link rel=...>
+2.  Tailwind CSS sudah aktif. Gunakan class Tailwind untuk semua styling.
+    Warna primary sudah dikonfigurasi — gunakan: bg-primary, text-primary, border-primary.
+3.  Font Awesome sudah aktif. Gunakan <i class="fa-solid fa-..."> atau <i class="fa-brands fa-...">.
+4.  Font 'Poppins' sudah menjadi default font body.
+5.  Boleh satu <script> inline di paling akhir output (hanya untuk navbar scroll effect).
+6.  Path gambar RELATIF (file ada di folder SAMA dengan HTML).
+    Benar : src="hero.jpg"   atau   style="background-image:url('hero.jpg')"
+    Salah : URL https:// apapun.
+7.  Section WAJIB — tepat 5, tidak lebih tidak kurang:
+    a. <nav>      sticky — transparan → bg-gray-900/95 saat scroll (JS classList toggle)
+    b. <section>  hero fullscreen — bg-image + dark overlay + headline + 1 tombol CTA
+    c. <section>  features — 3 card dengan <img> masing-masing + teks singkat
+    d. <section>  about — <img> about di samping paragraf deskripsi
+    e. <footer>   gelap, info kontak fiktif relevan, icon sosmed Font Awesome
+8.  Kode RINGKAS: gunakan class Tailwind, hindari style inline berulang.
+9.  DILARANG menambah section di luar 5 di atas.
 """
+
+SYSTEM_PROMPT_REACT = """Kamu adalah expert React Developer spesialis landing page modern.
+
+TUGAS: Buat HANYA dua elemen berikut untuk sebuah landing page modern dan profesional:
+  1. <div id="root"></div>
+  2. <script type="text/babel"> ... ReactDOM.createRoot(document.getElementById('root')).render(<App />) </script>
+
+Assets sudah tersedia: React 18, ReactDOM 18, Babel Standalone, Tailwind CSS, Font Awesome, Poppins.
+
+ATURAN KETAT:
+1.  Output HANYA dua elemen di atas. DILARANG menulis apapun di luar itu.
+    DILARANG: <!DOCTYPE>, <html>, <head>, <body>, <script src=...>, <link rel=...>
+2.  Gunakan React functional components dengan useState dan useEffect.
+3.  Tailwind CSS: gunakan className (BUKAN class) untuk semua styling.
+    Warna primary sudah dikonfigurasi — gunakan: bg-primary, text-primary.
+4.  Font Awesome: gunakan <i className="fa-solid fa-..."> langsung di JSX.
+5.  Font 'Poppins' sudah menjadi default font.
+6.  Path gambar RELATIF.
+    Benar: src="hero.jpg"   style={{backgroundImage:"url('hero.jpg')"}}
+    Salah: URL https:// apapun.
+7.  Komponen WAJIB dalam <App> — tepat 5, tidak lebih:
+    a. <Navbar>   sticky — transparan → bg-gray-900/95 saat scroll (useEffect + scroll listener)
+    b. <Hero>     fullscreen — bg-image + dark overlay + headline + 1 tombol CTA
+    c. <Features> 3 card dengan <img> masing-masing + teks singkat
+    d. <About>    <img> about di samping paragraf deskripsi
+    e. <Footer>   gelap, info kontak fiktif relevan, icon sosmed
+8.  Kode RINGKAS: 1 file, semua komponen dalam 1 <script type="text/babel">.
+9.  DILARANG menambah komponen di luar 5 di atas.
+"""
+
+
+def get_system_prompt(template: str = "vanilla") -> str:
+    """Kembalikan system prompt sesuai template type."""
+    return SYSTEM_PROMPT_REACT if template == "react" else SYSTEM_PROMPT
 
 def build_html_prompt(raw_name, description, page_title, color_theme, color_name,
                       photo_filenames, language="id"):
@@ -157,33 +288,23 @@ def build_html_prompt(raw_name, description, page_title, color_theme, color_name
     f2   = photo_filenames.get("feature_2", hero)
     f3   = photo_filenames.get("feature_3", hero)
     ab   = photo_filenames.get("about", hero)
-    return f"""Buat landing page untuk proyek berikut:
+    return f"""Buat konten body landing page untuk proyek berikut:
 
 NAMA PROYEK : {raw_name}
 DESKRIPSI   : {description}
+WARNA UTAMA : {color_theme} ({color_name}) → gunakan bg-primary / text-primary
 
-METADATA WAJIB:
-- <title> browser : {page_title}
-- Warna utama     : {color_theme} ({color_name})
-
-PATH GAMBAR LOKAL (file ada di folder yang SAMA dengan index.html, gunakan PERSIS seperti ini):
-- hero_path  : {hero}
-- feature_1  : {f1}
-- feature_2  : {f2}
-- feature_3  : {f3}
-- about_path : {ab}
+PATH GAMBAR LOKAL (file ada di folder SAMA dengan HTML, gunakan PERSIS):
+- hero   : {hero}
+- fitur1 : {f1}
+- fitur2 : {f2}
+- fitur3 : {f3}
+- about  : {ab}
 
 PENTING:
-- Hero section: background-image url('{hero}') full-screen + dark overlay 50%.
-- Feature cards: masing-masing pakai {f1}, {f2}, {f3} di <img src=...>.
-- About/Gallery: <img src="{ab}">.
-- JANGAN ganti path ini dengan URL https:// apapun.
-
-INSTRUKSI TAMBAHAN:
-- {lang_note}
-- Desain premium dan modern. Micro-animations halus.
-- 3 testimonial palsu yang relevan. Navbar glass morphism saat scroll.
-- Footer gradient gelap dengan info kontak fiktif relevan.
+- Hero: style="background-image:url('{hero}')" fullscreen + overlay gelap.
+- Features: <img src="{f1}">, <img src="{f2}">, <img src="{f3}"> di masing-masing card.
+- About: <img src="{ab}">.{lang_note}
 """
 
 def scan_photos(photos_dir: str) -> list:
@@ -228,13 +349,15 @@ def main():
     output_dir = env.get("OUTPUT_DIR", "output")
     app_name   = env.get("APP_NAME", "Landing Page Generator")
     photos_dir = env.get("PHOTOS_DIR", "~/Pictures")
-    max_tokens = int(env.get("MAX_TOKENS", "6000"))
+    max_tokens    = int(env.get("MAX_TOKENS", "6000"))
+    template_type = env.get("TEMPLATE_TYPE", "vanilla").strip().lower()
     if not api_key:
         print("[ERROR] OPENROUTER_API_KEY tidak ditemukan di .env"); sys.exit(1)
     print()
     print("=" * 60)
     print(f"  {app_name}")
     print(f"  Model : {model}")
+    print(f"  Template: {template_type}")
     print("=" * 60 + "\n")
 
     print("STEP 1 — Nama Proyek\n")
@@ -277,9 +400,11 @@ def main():
     print("\nSTEP 6 — Generate Landing Page ...")
     prompt    = build_html_prompt(raw_name, description, page_title,
                                   color_theme, color_name, photo_filenames, language)
-    raw_out   = call_ai(api_key, model, SYSTEM_PROMPT, prompt, max_tokens=max_tokens)
+    raw_out   = call_ai(api_key, model, get_system_prompt(template_type), prompt,
+                        max_tokens=max_tokens)
     html_code = extract_code(raw_out)
-    filepath  = save_project_html(html_code, project_dir)
+    filepath  = save_project_html(html_code, project_dir, page_title, color_theme,
+                                  language, template_type)
 
     print()
     print("=" * 60)
