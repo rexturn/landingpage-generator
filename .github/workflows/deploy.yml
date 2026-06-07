@@ -35,46 +35,46 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy to VPS
+      - name: Git pull
         run: |
           ssh -i ~/.ssh/id_ed25519 \
               -o StrictHostKeyChecking=no \
               -o PasswordAuthentication=no \
-              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'ENDSSH'
-            set -e
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "cd '${{ secrets.APP_DIR }}' && \
+               git fetch origin main && \
+               git reset --hard origin/main && \
+               echo 'Branch : '$(git branch --show-current) && \
+               echo 'Commit : '$(git log -1 --oneline)"
 
-            echo "=============================="
-            echo " Deploy: $(date '+%Y-%m-%d %H:%M:%S')"
-            echo "=============================="
+      - name: Install dependencies
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+              -o StrictHostKeyChecking=no \
+              -o PasswordAuthentication=no \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "cd '${{ secrets.APP_DIR }}' && \
+               python3 -m pip install -r requirements.txt -q --break-system-packages && \
+               echo 'Dependencies OK'"
 
-            cd "${{ secrets.APP_DIR }}"
+      - name: Restart service
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+              -o StrictHostKeyChecking=no \
+              -o PasswordAuthentication=no \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "sudo systemctl daemon-reload && \
+               sudo systemctl restart '${{ secrets.SERVICE_NAME }}' && \
+               echo 'Service restarted: ${{ secrets.SERVICE_NAME }}'"
 
-            # ── 1. Git pull ───────────────────────────────────────────────
-            echo "--> Git pull..."
-            git fetch origin main
-            git reset --hard origin/main
-            echo "    Branch  : $(git branch --show-current)"
-            echo "    Commit  : $(git log -1 --oneline)"
-
-            # ── 2. Install / update dependencies ─────────────────────────
-            echo "--> Install dependencies..."
-            python3 -m pip install -r requirements.txt -q --break-system-packages
-
-            # ── 3. Restart systemd service ────────────────────────────────
-            echo "--> Restart service ${{ secrets.SERVICE_NAME }}..."
-            sudo systemctl daemon-reload
-            sudo systemctl restart "${{ secrets.SERVICE_NAME }}"
-            sleep 3
-
-            # ── 4. Verifikasi service berjalan ────────────────────────────
-            echo "--> Status service:"
-            sudo systemctl status "${{ secrets.SERVICE_NAME }}" --no-pager -l
-
-            # ── 5. Verifikasi port 5001 listen ────────────────────────────
-            echo "--> Cek port 5001:"
-            ss -tlnp | grep 5001 || echo "    (port 5001 tidak aktif — bot mungkin mode polling)"
-
-            echo "=============================="
-            echo " Deploy selesai!"
-            echo "=============================="
-          ENDSSH
+      - name: Verify service
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+              -o StrictHostKeyChecking=no \
+              -o PasswordAuthentication=no \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "sleep 3 && \
+               sudo systemctl status '${{ secrets.SERVICE_NAME }}' --no-pager -l && \
+               echo '' && \
+               echo 'Port 5001:' && \
+               (ss -tlnp | grep 5001 || echo '(port 5001 tidak aktif — bot mungkin mode polling)')"
