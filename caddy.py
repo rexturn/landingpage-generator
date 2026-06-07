@@ -7,11 +7,13 @@ lalu memvalidasi dan mereload Caddy secara otomatis.
 
 Fungsi utama:
     configure_caddy_site(fqdn, web_root, caddy_json_path)
+    remove_caddy_site(fqdn, caddy_json_path)
 """
 
 import copy
 import json
 import os
+import re
 import subprocess
 import tempfile
 
@@ -131,6 +133,30 @@ def _fix_permissions(web_root: str) -> None:
         path = parent
 
 
+def _is_valid_ssl_fqdn(fqdn: str) -> bool:
+    """
+    Validasi bahwa FQDN hanya mengandung karakter yang valid untuk SSL/TLS cert
+    (Let's Encrypt menolak underscore dan karakter non-DNS).
+    Setiap label hanya boleh: a-z, 0-9, hyphen (tidak boleh di awal/akhir label).
+    """
+    if not fqdn or len(fqdn) > 253:
+        return False
+    labels = fqdn.lower().split(".")
+    label_re = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$")
+    return all(label_re.match(lbl) for lbl in labels if lbl)
+
+
+def _reload_caddy() -> None:
+    """Reload Caddy. Raises RuntimeError jika gagal."""
+    reload_ = subprocess.run(
+        ["sudo", "systemctl", "reload", "caddy"],
+        capture_output=True, text=True,
+    )
+    if reload_.returncode != 0:
+        output = (reload_.stderr or reload_.stdout).strip()
+        raise RuntimeError(f"systemctl reload caddy gagal:\n{output}")
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def configure_caddy_site(
@@ -154,11 +180,21 @@ def configure_caddy_site(
         }
 
     Raises:
-        RuntimeError  jika validate atau reload gagal.
+        RuntimeError  jika FQDN tidak valid, validate, atau reload gagal.
+                      Config di-rollback otomatis jika gagal setelah tulis.
     """
-    config = _load_config(caddy_json_path)
-    server = _get_server(config)
-    routes = server.setdefault("routes", [])
+    # ── Validasi FQDN sebelum menyentuh file apa pun ────────────────────────
+    if not _is_valid_ssl_fqdn(fqdn):
+        raise RuntimeError(
+            f"Domain tidak valid untuk SSL: '{fqdn}'.\n"
+            "Hanya boleh huruf kecil, angka, dan tanda hubung (-). "
+            "Underscore (_) dan karakter khusus lain tidak diizinkan oleh Let's Encrypt."
+        )
+
+    config_before = _load_config(caddy_json_path)   # simpan untuk rollback
+    config        = copy.deepcopy(config_before)
+    server        = _get_server(config)
+    routes        = server.setdefault("routes", [])
 
     # Bangun route baru
     new_route = {
@@ -205,6 +241,13 @@ def configure_caddy_site(
         capture_output=True, text=True, env=validate_env,
     )
     if validate.returncode != 0:
+        # Rollback ke config sebelumnya lalu reload
+        try:
+            _save_config(config_before, caddy_json_path)
+            subprocess.run(["sudo", "systemctl", "reload", "caddy"],
+                           capture_output=True, text=True)
+        except Exception:
+            pass
         raw = (validate.stderr or validate.stdout).strip()
         # caddy logs are JSON lines — extract only error/fatal entries
         error_lines = []
@@ -219,7 +262,7 @@ def configure_caddy_site(
             except (json.JSONDecodeError, TypeError):
                 error_lines.append(line)
         output = "\n".join(error_lines) if error_lines else raw
-        raise RuntimeError(f"caddy validate gagal:\n{output}")
+        raise RuntimeError(f"caddy validate gagal (config di-rollback):\n{output}")
 
     # ── Reload ────────────────────────────────────────────────────────────────
     reload_ = subprocess.run(
@@ -227,7 +270,66 @@ def configure_caddy_site(
         capture_output=True, text=True,
     )
     if reload_.returncode != 0:
+        # Rollback dan coba reload sekali lagi dengan config lama
+        try:
+            _save_config(config_before, caddy_json_path)
+            subprocess.run(["sudo", "systemctl", "reload", "caddy"],
+                           capture_output=True, text=True)
+        except Exception:
+            pass
         output = (reload_.stderr or reload_.stdout).strip()
-        raise RuntimeError(f"systemctl reload caddy gagal:\n{output}")
+        raise RuntimeError(f"systemctl reload caddy gagal (config di-rollback):\n{output}")
 
     return {"action": action, "fqdn": fqdn, "web_root": web_root}
+
+
+# ── Hapus site dari caddy.json ────────────────────────────────────────────────
+def remove_caddy_site(
+    fqdn: str,
+    caddy_json_path: str = CADDY_JSON_PATH,
+) -> bool:
+    """
+    Hapus route untuk fqdn dari caddy.json dan juga hapus dari TLS subjects.
+    Berguna untuk membersihkan domain yang gagal mendapatkan SSL cert.
+
+    Returns:
+        True  jika route ditemukan dan berhasil dihapus
+        False jika route tidak ditemukan (tidak ada yang perlu dihapus)
+
+    Raises:
+        RuntimeError jika reload Caddy gagal setelah penghapusan.
+    """
+    config = _load_config(caddy_json_path)
+    server = _get_server(config)
+    routes = server.get("routes", [])
+
+    new_routes = [
+        r for r in routes
+        if fqdn not in [h for m in r.get("match", []) for h in m.get("host", [])]
+    ]
+    if len(new_routes) == len(routes):
+        return False   # fqdn tidak ada di config
+
+    server["routes"] = new_routes
+
+    # Hapus juga dari TLS subjects
+    try:
+        policies = config["apps"]["tls"]["automation"]["policies"]
+        if policies and "subjects" in policies[0]:
+            policies[0]["subjects"] = [
+                s for s in policies[0]["subjects"] if s != fqdn
+            ]
+    except (KeyError, IndexError, TypeError):
+        pass
+
+    _save_config(config, caddy_json_path)
+
+    reload_ = subprocess.run(
+        ["sudo", "systemctl", "reload", "caddy"],
+        capture_output=True, text=True,
+    )
+    if reload_.returncode != 0:
+        output = (reload_.stderr or reload_.stdout).strip()
+        raise RuntimeError(f"Caddy reload gagal setelah hapus '{fqdn}':\n{output}")
+
+    return True

@@ -42,7 +42,7 @@ from generator import (
     get_system_prompt, SYSTEM_PROMPT,
 )
 from cloudflare import setup_subdomain, find_existing_record, get_zone_id
-from caddy import configure_caddy_site
+from caddy import configure_caddy_site, remove_caddy_site
 
 # ════════════════════════════════════════════════════════════
 #  STATES & SESSION
@@ -412,9 +412,21 @@ def make_bot(env: dict):
                                 f"  Status: {caddy_result['action']}"
                             )
                         except Exception as caddy_err:
+                            err_msg = str(caddy_err)
+                            # Jika domain invalid (SSL/karakter) → pastikan sudah di-rollback
+                            # (configure_caddy_site sudah rollback, tapi coba hapus untuk berjaga)
+                            if "tidak valid untuk SSL" in err_msg or "di-rollback" in err_msg:
+                                try:
+                                    removed = remove_caddy_site(
+                                        f"{fn_base}.{domain}", caddy_json
+                                    )
+                                    if removed:
+                                        err_msg += "\n_(Route sudah dihapus dari caddy.json)_"
+                                except Exception:
+                                    pass
                             caddy_msg = (
                                 f"\n\n⚠️ *Caddy config gagal:*\n"
-                                f"`{str(caddy_err)[:800]}`"
+                                f"`{err_msg[:800]}`"
                             )
                     # ─────────────────────────────────────────────────────
 
