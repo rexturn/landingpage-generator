@@ -11,12 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validasi secrets
+        run: |
+          missing=""
+          [ -z "${{ secrets.VPS_SSH_KEY }}" ] && missing="$missing VPS_SSH_KEY"
+          [ -z "${{ secrets.VPS_HOST }}"    ] && missing="$missing VPS_HOST"
+          [ -z "${{ secrets.VPS_USER }}"    ] && missing="$missing VPS_USER"
+          [ -z "${{ secrets.APP_DIR }}"     ] && missing="$missing APP_DIR"
+          [ -z "${{ secrets.SERVICE_NAME }}" ] && missing="$missing SERVICE_NAME"
+          if [ -n "$missing" ]; then
+            echo "ERROR: Secrets berikut belum diisi di GitHub repo:"
+            for s in $missing; do echo "  - $s"; done
+            echo ""
+            echo "Buka: Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "Semua secrets OK."
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Deploy to VPS
         run: |
