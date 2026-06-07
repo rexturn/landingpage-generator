@@ -16,6 +16,7 @@ Alur di Telegram:
 import os
 import sys
 import re
+import time
 import tempfile
 import threading
 import traceback
@@ -52,6 +53,14 @@ def _log_error(context: str, exc: Exception) -> None:
     traceback.print_exc()
 
 # ════════════════════════════════════════════════════════════
+#  CONSTANTS
+# ════════════════════════════════════════════════════════════
+
+MAX_PHOTO_BYTES  = 10 * 1024 * 1024   # 10 MB maks per foto
+SESSION_TTL_SEC  = 30 * 60            # 30 menit — sesi kedaluwarsa otomatis
+ALLOWED_MIME     = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+# ════════════════════════════════════════════════════════════
 #  STATES & SESSION
 # ════════════════════════════════════════════════════════════
 
@@ -69,9 +78,10 @@ def new_session() -> dict:
         "state":         S_NAME,
         "raw_name":      None,
         "filename_base": None,
-        "photos":        {},     # {"hero": "/tmp/...", "feature_1": ..., ...}
-        "tmp_files":     [],     # file temp yang perlu dihapus setelah selesai
+        "photos":        {},
+        "tmp_files":     [],
         "feature_count": 0,
+        "created_at":    time.time(),   # untuk session timeout
     }
 
 
@@ -81,6 +91,16 @@ def cleanup_tmp(session: dict):
             os.remove(f)
         except Exception:
             pass
+
+
+def purge_expired_sessions():
+    """Hapus sesi yang sudah lebih dari SESSION_TTL_SEC. Dipanggil saat pesan masuk."""
+    now     = time.time()
+    expired = [cid for cid, s in sessions.items()
+               if now - s.get("created_at", now) > SESSION_TTL_SEC]
+    for cid in expired:
+        cleanup_tmp(sessions[cid])
+        del sessions[cid]
 
 
 def fill_missing_photos(session: dict) -> dict:
@@ -178,14 +198,38 @@ def all_slots_full(session: dict) -> bool:
 def download_telegram_file(bot_instance, file_id: str) -> str:
     """Download file dari Telegram ke temp file, kembalikan path-nya."""
     file_info = bot_instance.get_file(file_id)
-    file_url  = (f"https://api.telegram.org/file/"
-                 f"bot{bot_instance.token}/{file_info.file_path}")
-    resp = req.get(file_url, timeout=60)
+
+    # ── Validasi ukuran file (cegah disk exhaustion) ──────────────────────
+    file_size = getattr(file_info, "file_size", None)
+    if file_size and file_size > MAX_PHOTO_BYTES:
+        raise ValueError(
+            f"Ukuran file {file_size // (1024*1024)} MB melebihi batas "
+            f"{MAX_PHOTO_BYTES // (1024*1024)} MB."
+        )
+
+    file_url = (f"https://api.telegram.org/file/"
+                f"bot{bot_instance.token}/{file_info.file_path}")
+    resp = req.get(file_url, timeout=60, stream=True)
     resp.raise_for_status()
-    ext = os.path.splitext(file_info.file_path)[1] or ".jpg"
-    tmp = tempfile.mktemp(suffix=ext)
-    with open(tmp, "wb") as f:
-        f.write(resp.content)
+
+    # ── Validasi ekstensi ─────────────────────────────────────────────────
+    ext = os.path.splitext(file_info.file_path)[1].lower() or ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        raise ValueError(f"Ekstensi file tidak diizinkan: {ext}")
+
+    # ── Tulis ke temp file (mkstemp: aman dari race condition) ────────────
+    fd, tmp = tempfile.mkstemp(suffix=ext)
+    try:
+        downloaded = 0
+        with os.fdopen(fd, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=65536):
+                downloaded += len(chunk)
+                if downloaded > MAX_PHOTO_BYTES:
+                    raise ValueError("File terlalu besar saat download.")
+                f.write(chunk)
+    except Exception:
+        os.unlink(tmp)
+        raise
     return tmp
 
 
@@ -208,6 +252,19 @@ def make_bot(env: dict):
     cf_enabled    = bool(cf_api_token)
     max_tokens    = int(env.get("MAX_TOKENS", "6000"))
     template_type = env.get("TEMPLATE_TYPE", "vanilla").strip().lower()
+
+    # ── Allowed chat IDs (opsional) ───────────────────────────────────────────
+    _raw_ids      = env.get("ALLOWED_CHAT_IDS", "").strip()
+    allowed_ids   = set()
+    if _raw_ids:
+        for _id in _raw_ids.split(","):
+            _id = _id.strip()
+            if _id.lstrip("-").isdigit():
+                allowed_ids.add(int(_id))
+
+    def _is_allowed(chat_id: int) -> bool:
+        """True jika ALLOWED_CHAT_IDS kosong (public) atau chat_id ada di daftar."""
+        return not allowed_ids or chat_id in allowed_ids
     # ── Caddy config ─────────────────────────────────────────────────────────
     caddy_json    = env.get("CADDY_JSON", "/etc/caddy/caddy.json")
     caddy_enabled = bool(caddy_json)
@@ -223,6 +280,10 @@ def make_bot(env: dict):
     @bot.message_handler(commands=["start", "baru", "reset"])
     def cmd_start(msg):
         chat_id = msg.chat.id
+        purge_expired_sessions()
+        if not _is_allowed(chat_id):
+            bot.send_message(chat_id, "⛔ Kamu tidak memiliki akses ke bot ini.")
+            return
         sessions[chat_id] = new_session()
         bot.send_message(chat_id,
             "👋 *Halo! Selamat datang di Landing Page Generator*\n\n"
@@ -286,6 +347,9 @@ def make_bot(env: dict):
     @bot.message_handler(content_types=["text"])
     def text_handler(msg):
         chat_id = msg.chat.id
+        purge_expired_sessions()
+        if not _is_allowed(chat_id):
+            return
         text    = msg.text.strip()
 
         if chat_id not in sessions:
@@ -512,6 +576,9 @@ def make_bot(env: dict):
     @bot.message_handler(content_types=["photo", "document"])
     def photo_handler(msg):
         chat_id = msg.chat.id
+        purge_expired_sessions()
+        if not _is_allowed(chat_id):
+            return
 
         if chat_id not in sessions:
             bot.send_message(chat_id, "Ketik /start untuk memulai."); return

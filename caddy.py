@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 
 CADDY_JSON_PATH = "/etc/caddy/caddy.json"
+_FQDN_RE        = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$")
 
 # Skeleton config minimal jika caddy.json belum ada
 _BASE_CONFIG: dict = {
@@ -135,15 +136,12 @@ def _fix_permissions(web_root: str) -> None:
 
 def _is_valid_ssl_fqdn(fqdn: str) -> bool:
     """
-    Validasi bahwa FQDN hanya mengandung karakter yang valid untuk SSL/TLS cert
-    (Let's Encrypt menolak underscore dan karakter non-DNS).
-    Setiap label hanya boleh: a-z, 0-9, hyphen (tidak boleh di awal/akhir label).
+    Validasi bahwa FQDN hanya mengandung karakter yang valid untuk SSL/TLS cert.
+    Let's Encrypt menolak underscore dan karakter non-DNS.
     """
     if not fqdn or len(fqdn) > 253:
         return False
-    labels = fqdn.lower().split(".")
-    label_re = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$")
-    return all(label_re.match(lbl) for lbl in labels if lbl)
+    return bool(_FQDN_RE.match(fqdn.lower()))
 
 
 def _reload_caddy() -> None:

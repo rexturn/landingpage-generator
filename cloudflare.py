@@ -199,6 +199,19 @@ def setup_subdomain(
     3. Buat/update DNS record
     Kembalikan dict hasil atau raise RuntimeError.
     """
+    # ── Validasi input sebelum dikirim ke API ────────────────────────────────
+    label_re = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$|^[a-z0-9]$")
+    if not subdomain or not label_re.match(subdomain.lower()):
+        raise RuntimeError(
+            f"Subdomain tidak valid: '{subdomain}'. "
+            "Hanya huruf kecil, angka, dan tanda hubung (-) yang diizinkan."
+        )
+    domain_re = re.compile(
+        r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$"
+    )
+    if not base_domain or not domain_re.match(base_domain.lower()):
+        raise RuntimeError(f"Base domain tidak valid: '{base_domain}'.")
+
     # 1. Target
     if not target:
         target = get_public_ip()
