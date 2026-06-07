@@ -385,7 +385,7 @@ def make_bot(env: dict):
                         except Exception as caddy_err:
                             caddy_msg = (
                                 f"\n\n⚠️ *Caddy config gagal:*\n"
-                                f"`{str(caddy_err)[:300]}`"
+                                f"`{str(caddy_err)[:800]}`"
                             )
                     # ─────────────────────────────────────────────────────
 

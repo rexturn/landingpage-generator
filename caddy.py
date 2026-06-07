@@ -190,12 +190,35 @@ def configure_caddy_site(
     _fix_permissions(web_root)
 
     # ── Validate ──────────────────────────────────────────────────────────────
+    # Baca CLOUDFLARE_API_TOKEN dari caddy.env agar caddy validate bisa akses
+    validate_env = os.environ.copy()
+    caddy_env_path = "/etc/caddy/caddy.env"
+    if os.path.exists(caddy_env_path):
+        with open(caddy_env_path, encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line.startswith("CLOUDFLARE_API_TOKEN=") and "=" in _line:
+                    validate_env["CLOUDFLARE_API_TOKEN"] = _line.split("=", 1)[1]
+                    break
     validate = subprocess.run(
         ["caddy", "validate", "--config", caddy_json_path],
-        capture_output=True, text=True,
+        capture_output=True, text=True, env=validate_env,
     )
     if validate.returncode != 0:
-        output = (validate.stderr or validate.stdout).strip()
+        raw = (validate.stderr or validate.stdout).strip()
+        # caddy logs are JSON lines — extract only error/fatal entries
+        error_lines = []
+        for line in raw.splitlines():
+            try:
+                entry = json.loads(line)
+                if entry.get("level") in ("error", "fatal", "warn"):
+                    error_lines.append(
+                        entry.get("msg", line)
+                        + (f": {entry['err']}" if "err" in entry else "")
+                    )
+            except (json.JSONDecodeError, TypeError):
+                error_lines.append(line)
+        output = "\n".join(error_lines) if error_lines else raw
         raise RuntimeError(f"caddy validate gagal:\n{output}")
 
     # ── Reload ────────────────────────────────────────────────────────────────
