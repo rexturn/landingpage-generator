@@ -1,0 +1,43 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Pull latest code and restart systemd
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy to VPS
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'EOF'
+            set -e
+
+            cd "${{ secrets.APP_DIR }}"
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            if [ -f package.json ]; then
+              npm ci --omit=dev
+              npm run build --if-present
+            fi
+
+            sudo systemctl restart "${{ secrets.SERVICE_NAME }}"
+            sudo systemctl status "${{ secrets.SERVICE_NAME }}" --no-pager
+
+            echo "Deploy selesai."
+          EOF

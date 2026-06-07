@@ -193,9 +193,10 @@ def make_bot(env: dict):
     # ── Cloudflare config ────────────────────────────────────────────────────
     cf_api_token  = env.get("CF_API_TOKEN", "")
     cf_account_id = env.get("CF_ACCOUNT_ID", "")
-    cf_zone_id    = env.get("CF_ZONE_ID", "")       # bisa kosong → auto-detect
-    cf_dns_target = env.get("CF_DNS_TARGET", "")    # bisa kosong → auto public IP
+    cf_zone_id    = env.get("CF_ZONE_ID", "")
+    cf_dns_target = env.get("CF_DNS_TARGET", "")
     cf_enabled    = bool(cf_api_token)
+    max_tokens    = int(env.get("MAX_TOKENS", "6000"))
 
     if not token:
         print("[ERROR] API_TELEGRAM tidak ditemukan di .env"); sys.exit(1)
@@ -344,7 +345,8 @@ def make_bot(env: dict):
                     prompt   = build_html_prompt(raw_name, description, page_title,
                                                  color_theme, color_name,
                                                  photo_filenames, language)
-                    raw_html = call_ai(api_key, model, SYSTEM_PROMPT, prompt)
+                    raw_html = call_ai(api_key, model, SYSTEM_PROMPT, prompt,
+                                       max_tokens=max_tokens)
                     html     = extract_code(raw_html)
                     save_project_html(html, project_dir)
 

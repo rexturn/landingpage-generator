@@ -60,7 +60,8 @@ def save_project_html(html_code: str, project_dir: str) -> str:
         f.write(html_code)
     return filepath
 
-def call_ai(api_key: str, model: str, system_prompt: str, user_prompt: str) -> str:
+def call_ai(api_key: str, model: str, system_prompt: str, user_prompt: str,
+            max_tokens: int = 6000) -> str:
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -72,11 +73,23 @@ def call_ai(api_key: str, model: str, system_prompt: str, user_prompt: str) -> s
         "model": model,
         "messages": [{"role": "system", "content": system_prompt},
                      {"role": "user",   "content": user_prompt}],
-        "temperature": 0.7, "max_tokens": 10000,
+        "temperature": 0.7, "max_tokens": max_tokens,
     }
-    print(f"  -> AI [{model}] ...", flush=True)
+    print(f"  -> AI [{model}] max_tokens={max_tokens} ...", flush=True)
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=120)
+        # Handle 402 (kredit habis) dengan pesan yang jelas
+        if resp.status_code == 402:
+            try:
+                detail = resp.json().get("error", {}).get("message", "")
+            except Exception:
+                detail = resp.text[:200]
+            raise RuntimeError(
+                f"Kredit OpenRouter habis (402).\n"
+                f"Detail: {detail}\n"
+                f"Top-up di: https://openrouter.ai/settings/credits\n"
+                f"Atau kurangi MAX_TOKENS di .env (sekarang: {max_tokens})"
+            )
         resp.raise_for_status()
     except requests.exceptions.HTTPError:
         raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
@@ -96,7 +109,7 @@ Respond ONLY with this exact JSON (no extra text):
   "color_theme": "#RRGGBB",
   "color_name": "color name in English"
 }}'''
-    raw = call_ai(api_key, model, system, user)
+    raw = call_ai(api_key, model, system, user, max_tokens=250)
     match = re.search(r"\{[\s\S]*?\}", raw)
     if match:
         try: return json.loads(match.group())
@@ -215,6 +228,7 @@ def main():
     output_dir = env.get("OUTPUT_DIR", "output")
     app_name   = env.get("APP_NAME", "Landing Page Generator")
     photos_dir = env.get("PHOTOS_DIR", "~/Pictures")
+    max_tokens = int(env.get("MAX_TOKENS", "6000"))
     if not api_key:
         print("[ERROR] OPENROUTER_API_KEY tidak ditemukan di .env"); sys.exit(1)
     print()
@@ -263,7 +277,7 @@ def main():
     print("\nSTEP 6 — Generate Landing Page ...")
     prompt    = build_html_prompt(raw_name, description, page_title,
                                   color_theme, color_name, photo_filenames, language)
-    raw_out   = call_ai(api_key, model, SYSTEM_PROMPT, prompt)
+    raw_out   = call_ai(api_key, model, SYSTEM_PROMPT, prompt, max_tokens=max_tokens)
     html_code = extract_code(raw_out)
     filepath  = save_project_html(html_code, project_dir)
 
