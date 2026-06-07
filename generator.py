@@ -153,7 +153,7 @@ def save_project_html(html_body: str, project_dir: str,
 
 def call_ai(api_key: str, model: str, system_prompt: str, user_prompt: str,
             max_tokens: int = 6000) -> str:
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = "https://apihub.agnes-ai.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type":  "application/json",
