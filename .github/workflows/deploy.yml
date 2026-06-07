@@ -38,7 +38,7 @@ jobs:
 
       - name: Git pull
         run: |
-          ssh git pull
+          ssh git pull "ssh://${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}/${{ secrets.APP_DIR }}"
 
       - name: Install dependencies
         run: |
