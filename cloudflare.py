@@ -130,7 +130,7 @@ def create_or_update_dns(
     subdomain:   str,
     base_domain: str,
     target:      str,
-    proxied:     bool = True,
+    proxied:     bool = False,
 ) -> dict:
     """
     Buat atau update A/CNAME record di Cloudflare.
