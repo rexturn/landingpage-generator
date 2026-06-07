@@ -38,9 +38,7 @@ jobs:
 
       - name: Git pull
         run: |
-          ssh -o StrictHostKeyChecking=no \
-              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-              "cd '${{ secrets.APP_DIR }}' && git pull"
+          ssh git pull
 
       - name: Install dependencies
         run: |
