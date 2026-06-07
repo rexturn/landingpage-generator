@@ -540,18 +540,44 @@ def main():
     env_path = os.path.join(_dir, ".env")
     env      = load_env(env_path)
 
+    webhook_url  = env.get("WEBHOOK_URL", "").rstrip("/")
+    webhook_port = int(env.get("WEBHOOK_PORT", "5001"))
+    token        = env.get("API_TELEGRAM", "")
+
     print()
     print("=" * 55)
     print("  Telegram Landing Page Bot")
     print(f"  Model : {env.get('AI_MODEL', 'google/gemini-2.5-flash')}")
     print(f"  Domain: *.{env.get('DOMAIN_SUFFIX', 'qtl.web.id')}")
     print(f"  Output: {env.get('OUTPUT_DIR', 'output')}/")
+    print(f"  Mode  : {'Webhook :' + str(webhook_port) if webhook_url else 'Polling'}")
     print("=" * 55)
     print()
-    print("[BOT] Starting... Tekan Ctrl+C untuk stop.\n")
 
     bot = make_bot(env)
-    bot.infinity_polling(timeout=30, long_polling_timeout=20)
+
+    if webhook_url:
+        # ── Webhook mode (production / VPS) ──────────────────────────────
+        # Telegram kirim update ke https://<webhook_url>/<token>
+        # Bot listen di 0.0.0.0:5001 (di belakang nginx/reverse proxy)
+        full_hook = f"{webhook_url}/{token}"
+        print(f"[BOT] Webhook mode")
+        print(f"      URL   : {full_hook[:60]}...")
+        print(f"      Listen: 0.0.0.0:{webhook_port}")
+        print()
+        bot.remove_webhook()
+        bot.run_webhooks(
+            listen       = "0.0.0.0",
+            port         = webhook_port,
+            url_path     = f"/{token}",
+            webhook_url  = full_hook,
+            debug        = False,
+        )
+    else:
+        # ── Polling mode (development / lokal) ───────────────────────────
+        print("[BOT] Polling mode. Tekan Ctrl+C untuk stop.\n")
+        bot.remove_webhook()
+        bot.infinity_polling(timeout=30, long_polling_timeout=20)
 
 
 if __name__ == "__main__":

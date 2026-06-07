@@ -7,13 +7,10 @@ on:
 
 jobs:
   deploy:
-    name: Pull latest code and restart systemd
+    name: Pull & restart bot on VPS
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -23,21 +20,41 @@ jobs:
 
       - name: Deploy to VPS
         run: |
-          ssh -i ~/.ssh/id_ed25519 "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'EOF'
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'ENDSSH'
             set -e
+
+            echo "=============================="
+            echo " Deploy: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "=============================="
 
             cd "${{ secrets.APP_DIR }}"
 
+            # ── 1. Git pull ───────────────────────────────────────────────
+            echo "--> Git pull..."
             git fetch origin main
             git reset --hard origin/main
+            echo "    Branch  : $(git branch --show-current)"
+            echo "    Commit  : $(git log -1 --oneline)"
 
-            if [ -f package.json ]; then
-              npm ci --omit=dev
-              npm run build --if-present
-            fi
+            # ── 2. Install / update dependencies ─────────────────────────
+            echo "--> Install dependencies..."
+            python3 -m pip install -r requirements.txt -q
 
+            # ── 3. Restart systemd service ────────────────────────────────
+            echo "--> Restart service ${{ secrets.SERVICE_NAME }}..."
+            sudo systemctl daemon-reload
             sudo systemctl restart "${{ secrets.SERVICE_NAME }}"
-            sudo systemctl status "${{ secrets.SERVICE_NAME }}" --no-pager
+            sleep 3
 
-            echo "Deploy selesai."
-          EOF
+            # ── 4. Verifikasi service berjalan ────────────────────────────
+            echo "--> Status service:"
+            sudo systemctl status "${{ secrets.SERVICE_NAME }}" --no-pager -l
+
+            # ── 5. Verifikasi port 5001 listen ────────────────────────────
+            echo "--> Cek port 5001:"
+            ss -tlnp | grep 5001 || echo "    (port 5001 tidak aktif — bot mungkin mode polling)"
+
+            echo "=============================="
+            echo " Deploy selesai!"
+            echo "=============================="
+          ENDSSH

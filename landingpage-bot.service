@@ -1,0 +1,33 @@
+[Unit]
+Description=Landing Page Telegram Bot
+Documentation=https://github.com/YOUR_USERNAME/YOUR_REPO
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_VPS_USER
+WorkingDirectory=/home/YOUR_VPS_USER/projects
+
+# Jalankan bot.py
+ExecStart=/usr/bin/python3 /home/YOUR_VPS_USER/projects/bot.py
+
+# Restart otomatis jika crash
+Restart=always
+RestartSec=10
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# Log (lihat dengan: journalctl -u landingpage-bot -f)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=landingpage-bot
+
+# Batas resource (opsional)
+# MemoryMax=512M
+# CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
