@@ -40,6 +40,7 @@ from generator import (
     SYSTEM_PROMPT,
 )
 from cloudflare import setup_subdomain
+from caddy import configure_caddy_site
 
 # ════════════════════════════════════════════════════════════
 #  STATES & SESSION
@@ -197,6 +198,9 @@ def make_bot(env: dict):
     cf_dns_target = env.get("CF_DNS_TARGET", "")
     cf_enabled    = bool(cf_api_token)
     max_tokens    = int(env.get("MAX_TOKENS", "6000"))
+    # ── Caddy config ─────────────────────────────────────────────────────────
+    caddy_json    = env.get("CADDY_JSON", "/etc/caddy/caddy.json")
+    caddy_enabled = bool(caddy_json)
 
     if not token:
         print("[ERROR] API_TELEGRAM tidak ditemukan di .env"); sys.exit(1)
@@ -353,8 +357,34 @@ def make_bot(env: dict):
                     # Bersihkan temp files
                     cleanup_tmp(session)
 
-                    url     = f"https://{fn_base}.{domain}"
-                    dns_msg = ""
+                    url       = f"https://{fn_base}.{domain}"
+                    caddy_msg = ""
+                    dns_msg   = ""
+
+                    # ── Caddy web server config ───────────────────────────
+                    if caddy_enabled:
+                        bot.send_message(chat_id,
+                            "🔧 *Mengatur Caddy web server...*"
+                        )
+                        try:
+                            web_root     = os.path.abspath(project_dir)
+                            caddy_result = configure_caddy_site(
+                                fqdn            = f"{fn_base}.{domain}",
+                                web_root        = web_root,
+                                caddy_json_path = caddy_json,
+                            )
+                            caddy_msg = (
+                                f"\n\n🔧 *Caddy berhasil dikonfigurasi!*\n"
+                                f"  Site  : `{caddy_result['fqdn']}`\n"
+                                f"  Root  : `{caddy_result['web_root']}`\n"
+                                f"  Status: {caddy_result['action']}"
+                            )
+                        except Exception as caddy_err:
+                            caddy_msg = (
+                                f"\n\n⚠️ *Caddy config gagal:*\n"
+                                f"`{str(caddy_err)[:300]}`"
+                            )
+                    # ─────────────────────────────────────────────────────
 
                     # ── Cloudflare DNS record ─────────────────────────────
                     if cf_enabled:
@@ -393,8 +423,9 @@ def make_bot(env: dict):
                         f"📄 File  : `{output_dir}/{fn_base}/index.html`\n"
                         f"🎨 Judul : {page_title}\n"
                         f"🎨 Warna : {color_theme} ({color_name})"
-                        + dns_msg +
-                        f"\n\nKetik /start untuk membuat landing page baru."
+                        + caddy_msg
+                        + dns_msg
+                        + f"\n\nKetik /start untuk membuat landing page baru."
                     )
 
                     # Notifikasi sesuai permintaan
