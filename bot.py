@@ -7,7 +7,7 @@ Jalankan: python3 bot.py
 Alur di Telegram:
   /start  →  STEP 1: kirim nama proyek
           →  STEP 2: upload foto (auto-klasifikasi hero/fitur/about berdasarkan ukuran)
-                     ketik /skip untuk lanjut setelah foto hero terupload
+                     ketik /lanjut untuk lanjut setelah foto hero terupload
           →  STEP 3: ketik deskripsi landing page
           →  [AI generate...]
           →  Notifikasi: "Hallo landingpage kamu telah berhasil dibuat akses dengan {nama}.qtl.web.id"
@@ -296,8 +296,8 @@ def make_bot(env: dict):
             "💡 Nama ini akan menjadi nama folder dan URL landing page kamu."
         )
 
-    # ── /skip ─────────────────────────────────────────────────────────────────
-    @bot.message_handler(commands=["skip", "lanjut", "done"])
+    # ── /lanjut ───────────────────────────────────────────────────────────────
+    @bot.message_handler(commands=["lanjut", "done"])
     def cmd_skip(msg):
         chat_id = msg.chat.id
         session = sessions.get(chat_id)
@@ -321,7 +321,7 @@ def make_bot(env: dict):
                 "target ibu-ibu muda kota, tagline: Cantik itu Mudah_"
             )
         else:
-            bot.send_message(chat_id, "Tidak ada langkah yang bisa di-skip sekarang.")
+            bot.send_message(chat_id, "Tidak ada langkah yang bisa dilanjutkan sekarang.")
 
     # ── /status ───────────────────────────────────────────────────────────────
     @bot.message_handler(commands=["status"])
@@ -569,7 +569,7 @@ def make_bot(env: dict):
         else:
             bot.send_message(chat_id,
                 "📸 Saya sedang menunggu foto.\n"
-                "Kirim foto atau ketik /skip untuk lanjut ke deskripsi."
+                "Kirim foto atau ketik /lanjut untuk lanjut ke deskripsi."
             )
 
     # ── Photo / Document handler ──────────────────────────────────────────────
@@ -646,16 +646,23 @@ def make_bot(env: dict):
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "Upload foto tambahan untuk section *Fitur* dan *About*.\n"
                 "Bot akan otomatis memilih slot berdasarkan ukuran foto.\n\n"
-                "Kirim foto atau ketik /skip untuk lanjut ke deskripsi."
+                "Kirim foto atau ketik /lanjut untuk lanjut ke deskripsi."
             )
 
         else:   # S_FEATURES
             role = classify_and_assign(width, height, session)
 
             if role is None:
+                # Semua slot penuh tapi foto masih dikirim — arahkan ke deskripsi
+                session["state"] = S_DESC
                 bot.send_message(chat_id,
-                    "✅ Semua slot foto sudah terisi!\n"
-                    "Ketik /skip untuk lanjut ke deskripsi."
+                    "✅ Semua slot foto sudah terisi!\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "*STEP 3 — Deskripsi*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Deskripsikan landing page yang kamu inginkan:\n\n"
+                    "_Contoh: Toko baju muslimah, warna pink pastel, "
+                    "target ibu-ibu muda kota, tagline: Cantik itu Mudah_"
                 ); return
 
             if role.startswith("feature_"):
@@ -672,11 +679,20 @@ def make_bot(env: dict):
             )
 
             if all_slots_full(session):
-                msg_text += "✅ Semua slot terisi! Ketik /skip untuk lanjut."
+                session["state"] = S_DESC
+                bot.send_message(chat_id,
+                    msg_text +
+                    "✅ Semua slot terisi! Lanjut otomatis ke deskripsi.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "*STEP 3 — Deskripsi*\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Deskripsikan landing page yang kamu inginkan:\n\n"
+                    "_Contoh: Toko baju muslimah, warna pink pastel, "
+                    "target ibu-ibu muda kota, tagline: Cantik itu Mudah_"
+                )
             else:
-                msg_text += "Kirim foto lagi atau ketik /skip untuk lanjut."
-
-            bot.send_message(chat_id, msg_text)
+                msg_text += "Kirim foto lagi atau ketik /lanjut untuk lanjut."
+                bot.send_message(chat_id, msg_text)
 
     return bot
 

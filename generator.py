@@ -163,7 +163,9 @@ def copy_photos_to_project(selected: dict, project_dir: str) -> dict:
         # (feature_1.jpg, feature_2.jpg, ...) dan file-nya pasti ada.
         ext      = Path(src).suffix.lower() or ".jpg"
         destname = f"{key}{ext}"
-        shutil.copy2(src, os.path.join(project_dir, destname))
+        dest = os.path.join(project_dir, destname)
+        shutil.copy2(src, dest)
+        os.chmod(dest, 0o644)
         result[key] = destname
     return result
 
@@ -177,6 +179,7 @@ def save_project_html(html_body: str, project_dir: str,
     filepath = os.path.join(project_dir, "index.html")
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(html)
+    os.chmod(filepath, 0o644)
     return filepath
 
 def call_ai(api_key: str, model: str, system_prompt: str, user_prompt: str,
