@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LandingPage Generator — Buat Landing Page Profesional dalam 60 Detik</title>
+  <meta name="description" content="Generate landing page profesional dengan AI hanya lewat chat Telegram. Domain + SSL otomatis. Gratis dicoba!" />
+
+  <!-- Tailwind (local) -->
+  <script src="tailwind.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: "#7C3AED",
+            secondary: "#4F46E5",
+            accent: "#06B6D4",
+          },
+          fontFamily: { poppins: ["Poppins", "sans-serif"] },
+          animation: {
+            float: "float 3s ease-in-out infinite",
+            "pulse-slow": "pulse 3s ease-in-out infinite",
+            "fade-in": "fadeIn 0.6s ease-out both",
+            "slide-up": "slideUp 0.6s ease-out both",
+          },
+          keyframes: {
+            float: {
+              "0%,100%": { transform: "translateY(0)" },
+              "50%": { transform: "translateY(-12px)" },
+            },
+            fadeIn: { from: { opacity: 0 }, to: { opacity: 1 } },
+            slideUp: {
+              from: { opacity: 0, transform: "translateY(30px)" },
+              to: { opacity: 1, transform: "translateY(0)" },
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Font Awesome (local) -->
+  <link rel="stylesheet" href="fa/css/all.min.css" />
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <style>
+    body { font-family: "Poppins", sans-serif; }
+    html { scroll-behavior: smooth; }
+
+    .gradient-text {
+      background: linear-gradient(135deg, #7C3AED, #06B6D4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .gradient-bg {
+      background: linear-gradient(135deg, #7C3AED 0%, #4F46E5 50%, #06B6D4 100%);
+    }
+    .card-glow:hover {
+      box-shadow: 0 0 30px rgba(124, 58, 237, 0.3);
+      transform: translateY(-4px);
+    }
+    .step-line::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 100%;
+      width: 2px;
+      height: 40px;
+      background: linear-gradient(#7C3AED, transparent);
+      transform: translateX(-50%);
+    }
+    .glass {
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0f0f1a; }
+    ::-webkit-scrollbar-thumb { background: #7C3AED; border-radius: 3px; }
+  </style>
+</head>
+
+<body class="bg-gray-950 text-white">
+
+  <!-- ══════════ FLOATING WA TAG ══════════ -->
+  <a href="https://wa.me/6282154902520"
+     target="_blank"
+     title="Punya ide project? Chat WA"
+     class="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-green-500 hover:bg-green-400 text-white px-4 py-3 rounded-full shadow-2xl transition-all duration-300 hover:scale-105 group">
+    <i class="fa-brands fa-whatsapp text-xl"></i>
+    <span class="text-sm font-semibold hidden group-hover:block whitespace-nowrap max-w-0 group-hover:max-w-xs overflow-hidden transition-all duration-500">
+      Punya ide project? Chat WA
+    </span>
+  </a>
+
+  <!-- ══════════ NAVBAR ══════════ -->
+  <nav id="navbar" class="fixed top-0 left-0 right-0 z-40 transition-all duration-300 py-4">
+    <div class="max-w-6xl mx-auto px-6 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-9 h-9 gradient-bg rounded-xl flex items-center justify-center">
+          <i class="fa-solid fa-bolt text-white text-sm"></i>
+        </div>
+        <span class="font-bold text-lg">LP<span class="gradient-text">Generator</span></span>
+      </div>
+      <div class="hidden md:flex items-center gap-8 text-sm text-gray-400">
+        <a href="#fitur" class="hover:text-white transition">Fitur</a>
+        <a href="#cara-kerja" class="hover:text-white transition">Cara Kerja</a>
+        <a href="#donasi" class="hover:text-white transition">Donasi</a>
+      </div>
+      <a href="https://t.me/RexturmBot" target="_blank"
+         class="gradient-bg px-5 py-2 rounded-full text-sm font-semibold hover:opacity-90 transition flex items-center gap-2">
+        <i class="fa-brands fa-telegram"></i>
+        Coba Sekarang
+      </a>
+    </div>
+  </nav>
+
+  <!-- ══════════ HERO ══════════ -->
+  <section class="min-h-screen flex items-center justify-center relative overflow-hidden pt-20">
+    <!-- Blobs -->
+    <div class="absolute top-20 left-10 w-96 h-96 bg-purple-700 opacity-20 rounded-full blur-3xl animate-pulse-slow"></div>
+    <div class="absolute bottom-20 right-10 w-80 h-80 bg-cyan-500 opacity-15 rounded-full blur-3xl animate-pulse-slow" style="animation-delay:.8s"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-700 opacity-10 rounded-full blur-3xl"></div>
+
+    <div class="max-w-5xl mx-auto px-6 text-center relative z-10">
+      <!-- Badge -->
+      <div class="inline-flex items-center gap-2 glass rounded-full px-4 py-2 mb-6 text-sm text-purple-300 animate-fade-in">
+        <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+        Powered by AI — Gemini, Claude, Llama
+      </div>
+
+      <h1 class="text-5xl md:text-7xl font-black leading-tight mb-6 animate-slide-up">
+        Buat Landing Page<br/>
+        <span class="gradient-text">Profesional</span><br/>
+        dalam 60 Detik
+      </h1>
+
+      <p class="text-lg md:text-xl text-gray-400 max-w-2xl mx-auto mb-10 animate-slide-up" style="animation-delay:.15s">
+        Cukup chat di Telegram, upload foto &amp; deskripsikan bisnis kamu —
+        AI kami generate landing page lengkap dengan <strong class="text-white">domain + SSL otomatis</strong>.
+        Tanpa coding, tanpa ribet.
+      </p>
+
+      <div class="flex flex-col sm:flex-row gap-4 justify-center animate-slide-up" style="animation-delay:.25s">
+        <a href="https://t.me/RexturmBot" target="_blank"
+           class="gradient-bg px-8 py-4 rounded-2xl font-bold text-lg hover:opacity-90 transition-all hover:scale-105 flex items-center justify-center gap-3 shadow-2xl shadow-purple-900/50">
+          <i class="fa-brands fa-telegram text-xl"></i>
+          Coba LandingPage Generator
+        </a>
+        <a href="#cara-kerja"
+           class="glass px-8 py-4 rounded-2xl font-semibold text-gray-300 hover:text-white hover:border-purple-500 transition-all flex items-center justify-center gap-2">
+          <i class="fa-solid fa-play-circle"></i>
+          Lihat Cara Kerja
+        </a>
+      </div>
+
+      <!-- Stats bar -->
+      <div class="mt-16 grid grid-cols-3 gap-6 max-w-lg mx-auto animate-fade-in" style="animation-delay:.4s">
+        <div class="text-center">
+          <div class="text-3xl font-black gradient-text">60s</div>
+          <div class="text-xs text-gray-500 mt-1">Rata-rata selesai</div>
+        </div>
+        <div class="text-center border-x border-gray-800">
+          <div class="text-3xl font-black gradient-text">100%</div>
+          <div class="text-xs text-gray-500 mt-1">HTTPS otomatis</div>
+        </div>
+        <div class="text-center">
+          <div class="text-3xl font-black gradient-text">0</div>
+          <div class="text-xs text-gray-500 mt-1">Baris kode</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scroll indicator -->
+    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 animate-float">
+      <i class="fa-solid fa-chevron-down text-gray-600 text-xl"></i>
+    </div>
+  </section>
+
+  <!-- ══════════ FEATURES ══════════ -->
+  <section id="fitur" class="py-24 px-6">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-16">
+        <span class="text-purple-400 font-semibold text-sm tracking-widest uppercase">Kenapa Kami?</span>
+        <h2 class="text-4xl md:text-5xl font-black mt-3">Fitur yang <span class="gradient-text">Membedakan</span></h2>
+        <p class="text-gray-400 mt-4 max-w-xl mx-auto">Semua yang kamu butuhkan untuk landing page profesional, tanpa sentuh kode satupun.</p>
+      </div>
+
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+        <!-- Feature cards -->
+        <div class="glass p-7 rounded-2xl card-glow transition-all duration-300 cursor-default">
+          <div class="w-12 h-12 bg-purple-900/60 rounded-xl flex items-center justify-center mb-5">
+            <i class="fa-solid fa-robot text-purple-400 text-xl"></i>
+          </div>
+          <h3 class="font-bold text-lg mb-2">AI Multi-Model</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">Generate dengan Gemini 2.5 Flash, Claude Sonnet, atau Meta LLaMA. Pilih model sesuai kebutuhan dan budget.</p>
+        </div>
+
+        <div class="glass p-7 rounded-2xl card-glow transition-all duration-300 cursor-default">
+          <div class="w-12 h-12 bg-cyan-900/60 rounded-xl flex items-center justify-center mb-5">
+            <i class="fa-solid fa-images text-cyan-400 text-xl"></i>
+          </div>
+          <h3 class="font-bold text-lg mb-2">Auto Photo Classification</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">Upload foto, bot langsung klasifikasi jadi hero banner, card fitur, atau foto about/team berdasarkan ukuran gambar.</p>
+        </div>
+
+        <div class="glass p-7 rounded-2xl card-glow transition-all duration-300 cursor-default">
+          <div class="w-12 h-12 bg-green-900/60 rounded-xl flex items-center justify-center mb-5">
+            <i class="fa-solid fa-globe text-green-400 text-xl"></i>
+          </div>
+          <h3 class="font-bold text-lg mb-2">Domain + SSL Otomatis</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">Subdomain langsung terdaftar di Cloudflare dan SSL diterbitkan oleh Let's Encrypt via Caddy. Tanpa setup manual.</p>
+        </div>
+
+        <div class="glass p-7 rounded-2xl card-glow transition-all duration-300 cursor-default">
+          <div class="w-12 h-12 bg-yellow-900/60 rounded-xl flex items-center justify-center mb-5">
+            <i class="fa-solid fa-bolt text-yellow-400 text-xl"></i>
+          </div>
+          <h3 class="font-bold text-lg mb-2">30–90 Detik Jadi</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">Dari deskripsi teks ke landing page lengkap 5 section dalam hitungan detik. AI bekerja, kamu istirahat.</p>
+        </div>
+
+        <div class="glass p-7 rounded-2xl card-glow transition-all duration-300 cursor-default">
+          <div class="w-12 h-12 bg-indigo-900/60 rounded-xl flex items-center justify-center mb-5">
+            <i class="fa-brands fa-react text-indigo-400 text-xl"></i>
+          </div>
+          <h3 class="font-bold text-lg mb-2">Template Vanilla &amp; React</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">Pilih template Tailwind + Vanilla JS yang ringan, atau React 18 + Babel untuk landing page yang lebih interaktif.</p>
+        </div>
+
+        <div class="glass p-7 rounded-2xl card-glow transition-all duration-300 cursor-default">
+          <div class="w-12 h-12 bg-pink-900/60 rounded-xl flex items-center justify-center mb-5">
+            <i class="fa-solid fa-pencil text-pink-400 text-xl"></i>
+          </div>
+          <h3 class="font-bold text-lg mb-2">Edit Kapan Saja</h3>
+          <p class="text-gray-400 text-sm leading-relaxed">Ganti foto, prompt ulang AI dengan deskripsi baru, atau keduanya — domain tetap sama, tidak perlu setup ulang.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ HOW IT WORKS ══════════ -->
+  <section id="cara-kerja" class="py-24 px-6 bg-gray-900/40">
+    <div class="max-w-4xl mx-auto">
+      <div class="text-center mb-16">
+        <span class="text-cyan-400 font-semibold text-sm tracking-widest uppercase">Super Mudah</span>
+        <h2 class="text-4xl md:text-5xl font-black mt-3">Cara <span class="gradient-text">Menjalankan</span></h2>
+        <p class="text-gray-400 mt-4">Dari nol ke landing page live dalam beberapa langkah sederhana.</p>
+      </div>
+
+      <div class="relative">
+        <!-- Vertical line -->
+        <div class="absolute left-8 top-0 bottom-0 w-0.5 bg-gradient-to-b from-purple-600 via-indigo-500 to-cyan-400 hidden md:block"></div>
+
+        <div class="space-y-8">
+
+          <div class="flex gap-6 items-start group">
+            <div class="relative z-10 flex-shrink-0 w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-purple-900/50 group-hover:scale-110 transition-transform">1</div>
+            <div class="glass p-6 rounded-2xl flex-1 group-hover:border-purple-500/50 transition-all">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-brands fa-telegram text-blue-400 text-lg"></i>
+                <h3 class="font-bold text-lg">Buka Telegram Bot</h3>
+              </div>
+              <p class="text-gray-400 text-sm">Cari <a href="https://t.me/RexturmBot" target="_blank" class="text-purple-400 hover:underline font-semibold">@RexturmBot</a> di Telegram lalu kirim <code class="bg-gray-800 px-2 py-0.5 rounded text-purple-300">/start</code> untuk memulai.</p>
+            </div>
+          </div>
+
+          <div class="flex gap-6 items-start group">
+            <div class="relative z-10 flex-shrink-0 w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-purple-900/50 group-hover:scale-110 transition-transform">2</div>
+            <div class="glass p-6 rounded-2xl flex-1 group-hover:border-purple-500/50 transition-all">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-tag text-yellow-400 text-lg"></i>
+                <h3 class="font-bold text-lg">Ketik Nama Proyek</h3>
+              </div>
+              <p class="text-gray-400 text-sm">Bot akan buatkan slug domain yang bersih secara otomatis menggunakan AI. Misalnya <em>"Toko Baju Online"</em> → <code class="bg-gray-800 px-2 py-0.5 rounded text-cyan-300">tokobaju.qtl.web.id</code></p>
+            </div>
+          </div>
+
+          <div class="flex gap-6 items-start group">
+            <div class="relative z-10 flex-shrink-0 w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-purple-900/50 group-hover:scale-110 transition-transform">3</div>
+            <div class="glass p-6 rounded-2xl flex-1 group-hover:border-purple-500/50 transition-all">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-images text-pink-400 text-lg"></i>
+                <h3 class="font-bold text-lg">Upload Foto Produk</h3>
+              </div>
+              <p class="text-gray-400 text-sm">Kirim foto satu per satu. Bot otomatis klasifikasikan berdasarkan ukuran: landscape → hero banner, square → card fitur, portrait → about/team. Lalu ketik <code class="bg-gray-800 px-2 py-0.5 rounded text-purple-300">/lanjut</code>.</p>
+            </div>
+          </div>
+
+          <div class="flex gap-6 items-start group">
+            <div class="relative z-10 flex-shrink-0 w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-purple-900/50 group-hover:scale-110 transition-transform">4</div>
+            <div class="glass p-6 rounded-2xl flex-1 group-hover:border-purple-500/50 transition-all">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-pen-to-square text-green-400 text-lg"></i>
+                <h3 class="font-bold text-lg">Deskripsikan Bisnis Kamu</h3>
+              </div>
+              <p class="text-gray-400 text-sm">Tulis deskripsi bebas. Contoh: <em>"Toko baju muslimah, warna pink pastel, target ibu-ibu muda kota, tagline: Cantik itu Mudah"</em>. Semakin detail, semakin bagus hasilnya.</p>
+            </div>
+          </div>
+
+          <div class="flex gap-6 items-start group">
+            <div class="relative z-10 flex-shrink-0 w-16 h-16 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-yellow-900/50 group-hover:scale-110 transition-transform">5</div>
+            <div class="glass p-6 rounded-2xl flex-1 group-hover:border-yellow-500/50 transition-all">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-gears text-orange-400 text-lg animate-spin" style="animation-duration:3s"></i>
+                <h3 class="font-bold text-lg">AI Bekerja (30–90 Detik)</h3>
+              </div>
+              <p class="text-gray-400 text-sm">Bot mengirim notifikasi saat generate sedang berjalan. AI menganalisa tema, warna, dan konten, lalu menyusun 5 section HTML lengkap.</p>
+            </div>
+          </div>
+
+          <div class="flex gap-6 items-start group">
+            <div class="relative z-10 flex-shrink-0 w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-400 rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg shadow-green-900/50 group-hover:scale-110 transition-transform">✓</div>
+            <div class="glass p-6 rounded-2xl flex-1 border-green-500/30 group-hover:border-green-400/60 transition-all">
+              <div class="flex items-center gap-3 mb-2">
+                <i class="fa-solid fa-circle-check text-green-400 text-lg"></i>
+                <h3 class="font-bold text-lg">Domain Aktif + Notifikasi!</h3>
+              </div>
+              <p class="text-gray-400 text-sm">Landing page live dengan domain subdomain + HTTPS. Bot memberikan notifikasi otomatis saat domain sudah bisa diakses setelah propagasi DNS selesai. 🎉</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="text-center mt-12">
+        <a href="https://t.me/RexturmBot" target="_blank"
+           class="inline-flex items-center gap-3 gradient-bg px-10 py-4 rounded-2xl font-bold text-lg hover:opacity-90 transition-all hover:scale-105 shadow-2xl shadow-purple-900/50">
+          <i class="fa-brands fa-telegram text-xl"></i>
+          Mulai Sekarang — Gratis!
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ RECENT PROJECTS ══════════ -->
+  <section id="recent" class="py-24 px-6 hidden" data-section="recent">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-12">
+        <span class="text-green-400 font-semibold text-sm tracking-widest uppercase">Baru Dibuat</span>
+        <h2 class="text-4xl font-black mt-3">Landing Page <span class="gradient-text">Terbaru</span></h2>
+        <p class="text-gray-400 mt-3 text-sm">Dibuat oleh pengguna bot secara real-time.</p>
+      </div>
+      <div id="recent-list" class="grid md:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+    </div>
+  </section>
+
+  <!-- ══════════ DONATION ══════════ -->
+  <section id="donasi" class="py-24 px-6">
+    <div class="max-w-4xl mx-auto">
+      <div class="glass rounded-3xl p-10 md:p-16 text-center relative overflow-hidden">
+        <!-- Bg glow -->
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-purple-700 opacity-10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <div class="relative z-10">
+          <div class="inline-flex items-center justify-center w-16 h-16 gradient-bg rounded-2xl mb-6 shadow-lg">
+            <i class="fa-solid fa-heart text-2xl text-white"></i>
+          </div>
+          <h2 class="text-4xl font-black mb-4">Dukung Pengembangan <span class="gradient-text">Kami</span></h2>
+          <p class="text-gray-400 max-w-lg mx-auto mb-10 text-sm leading-relaxed">
+            Tool ini dibuat dan dikelola secara personal. Kalau kamu merasa terbantu, donasi kecilmu sangat berarti untuk terus mengembangkan fitur-fitur baru. ❤️
+          </p>
+
+          <div class="flex flex-col md:flex-row items-center justify-center gap-10">
+            <!-- QRIS -->
+            <div class="flex flex-col items-center gap-4">
+              <div class="bg-white p-4 rounded-2xl shadow-2xl shadow-purple-900/30">
+                <img src="donasi-qris.webp" alt="QRIS Donasi" class="w-52 h-52 object-contain" />
+              </div>
+              <p class="text-sm text-gray-400">Scan QRIS dengan aplikasi apapun</p>
+            </div>
+
+            <!-- Info -->
+            <div class="text-left space-y-4 max-w-xs">
+              <div class="flex items-start gap-3">
+                <div class="w-8 h-8 bg-purple-900/60 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <i class="fa-solid fa-check text-purple-400 text-xs"></i>
+                </div>
+                <p class="text-sm text-gray-300">Support biaya server & domain agar layanan tetap gratis</p>
+              </div>
+              <div class="flex items-start gap-3">
+                <div class="w-8 h-8 bg-purple-900/60 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <i class="fa-solid fa-check text-purple-400 text-xs"></i>
+                </div>
+                <p class="text-sm text-gray-300">Dorong pengembangan fitur baru (template lebih banyak, AI lebih canggih)</p>
+              </div>
+              <div class="flex items-start gap-3">
+                <div class="w-8 h-8 bg-purple-900/60 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <i class="fa-solid fa-check text-purple-400 text-xs"></i>
+                </div>
+                <p class="text-sm text-gray-300">Nominal berapapun sangat membantu & diterima dengan tulus 🙏</p>
+              </div>
+
+              <a href="https://t.me/RexturmBot" target="_blank"
+                 class="mt-6 inline-flex items-center gap-2 gradient-bg px-6 py-3 rounded-xl font-semibold text-sm hover:opacity-90 transition w-full justify-center">
+                <i class="fa-brands fa-telegram"></i>
+                Terima kasih! Coba Botnya
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ FOOTER ══════════ -->
+  <footer class="border-t border-gray-800 py-10 px-6">
+    <div class="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 gradient-bg rounded-lg flex items-center justify-center">
+          <i class="fa-solid fa-bolt text-white text-xs"></i>
+        </div>
+        <span class="font-bold">LPGenerator</span>
+        <span class="text-gray-600 text-sm">— AI-powered landing page builder</span>
+      </div>
+
+      <div class="flex items-center gap-6 text-gray-400 text-sm">
+        <a href="https://t.me/RexturmBot" target="_blank" class="hover:text-white transition flex items-center gap-1.5">
+          <i class="fa-brands fa-telegram"></i> @RexturmBot
+        </a>
+        <a href="https://wa.me/6282154902520" target="_blank" class="hover:text-green-400 transition flex items-center gap-1.5">
+          <i class="fa-brands fa-whatsapp"></i> 082154902520
+        </a>
+      </div>
+
+      <p class="text-gray-600 text-sm">
+        &copy; 2026 All rights reserved — <a href="https://t.me/rexturm" target="_blank" class="text-purple-400 hover:underline">@rexturm</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- ══════════ SCRIPTS ══════════ -->
+  <script>
+    // ── Navbar scroll effect ─────────────────────────────────────────────────
+    const navbar = document.getElementById("navbar");
+    window.addEventListener("scroll", () => {
+      if (window.scrollY > 50) {
+        navbar.classList.add("bg-gray-950/90", "backdrop-blur-md", "border-b", "border-gray-800/50", "shadow-lg");
+        navbar.classList.remove("py-4");
+        navbar.classList.add("py-2");
+      } else {
+        navbar.classList.remove("bg-gray-950/90", "backdrop-blur-md", "border-b", "border-gray-800/50", "shadow-lg");
+        navbar.classList.remove("py-2");
+        navbar.classList.add("py-4");
+      }
+    });
+
+    // ── Load recent projects ─────────────────────────────────────────────────
+    async function loadRecentProjects() {
+      try {
+        const res = await fetch("public_projects.json?t=" + Date.now(), { cache: "no-store" });
+        if (!res.ok) return;
+        const projects = await res.json();
+        if (!projects || projects.length === 0) return;
+
+        const section = document.querySelector('[data-section="recent"]');
+        const list    = document.getElementById("recent-list");
+
+        section.classList.remove("hidden");
+
+        list.innerHTML = projects.map(p => `
+          <a href="${p.url}" target="_blank" rel="noopener noreferrer"
+             class="glass p-5 rounded-2xl hover:border-purple-500/50 transition-all hover:-translate-y-1 group block">
+            <div class="flex items-start justify-between gap-3 mb-3">
+              <div class="w-10 h-10 bg-purple-900/50 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-purple-700/60 transition">
+                <i class="fa-solid fa-globe text-purple-400 text-sm"></i>
+              </div>
+              <span class="text-xs text-gray-600 mt-1 shrink-0">${p.created_at || ""}</span>
+            </div>
+            <h4 class="font-semibold text-sm mb-1 truncate">${escHtml(p.name)}</h4>
+            <p class="text-xs text-gray-500 truncate">${p.url}</p>
+          </a>
+        `).join("");
+      } catch (e) {
+        // Diam saja jika file tidak ada
+      }
+    }
+
+    function escHtml(s) {
+      return s.replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[m]);
+    }
+
+    loadRecentProjects();
+
+    // ── Intersection Observer untuk animasi ─────────────────────────────────
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.style.opacity = "1";
+          e.target.style.transform = "translateY(0)";
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll(".glass").forEach(el => {
+      el.style.opacity = "0";
+      el.style.transform = "translateY(20px)";
+      el.style.transition = "opacity 0.5s ease, transform 0.5s ease";
+      observer.observe(el);
+    });
+  </script>
+
+</body>
+</html>

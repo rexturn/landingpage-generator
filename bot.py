@@ -285,6 +285,42 @@ def make_bot(env: dict):
         os.makedirs(output_dir, exist_ok=True)
         with open(_registry_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def _update_public_projects():
+        """Tulis 5 domain terakhir ke main-landing/public_projects.json untuk ditampilkan di website."""
+        try:
+            reg = _load_registry()
+            projects = [
+                {
+                    "url":        f"https://{e['fn_base']}.{domain}",
+                    "name":       e["raw_name"],
+                    "created_at": e.get("created_at_str", ""),
+                }
+                for e in reg.values()
+                if e.get("fn_base")
+            ]
+            last5       = projects[-5:][::-1]   # 5 terbaru, urutan terbaru dulu
+            public_path = os.path.join(_dir, "main-landing", "public_projects.json")
+            os.makedirs(os.path.dirname(public_path), exist_ok=True)
+            with open(public_path, "w", encoding="utf-8") as f:
+                json.dump(last5, f, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            print(f"[warn] _update_public_projects: {exc}", flush=True)
+
+    def _delete_msgs(chat_id: int, msg_ids: list):
+        """Hapus daftar pesan secara senyap (abaikan error jika pesan sudah terhapus)."""
+        for mid in msg_ids:
+            if mid:
+                try:
+                    bot.delete_message(chat_id, mid)
+                except Exception:
+                    pass
+
+    def _main_menu_markup() -> tg_types.InlineKeyboardMarkup:
+        """Tombol 'Buka Menu' yang memunculkan menu utama."""
+        markup = tg_types.InlineKeyboardMarkup()
+        markup.add(tg_types.InlineKeyboardButton("📋 Buka Menu", callback_data="main_menu"))
+        return markup
     # ──────────────────────────────────────────────────────────────────────────
 
     if not token:
@@ -325,7 +361,8 @@ def make_bot(env: dict):
         )
 
     # ── Generation worker (dipakai oleh S_DESC dan S_EDIT_DESC) ──────────────
-    def _run_generation(chat_id: int, session: dict, description: str):
+    def _run_generation(chat_id: int, session: dict, description: str,
+                         loading_msg_id: int = None):
         try:
             fn_base   = session["filename_base"]
             raw_name  = session["raw_name"]
@@ -368,11 +405,13 @@ def make_bot(env: dict):
 
             caddy_msg = ""
             dns_msg   = ""
+            _tmp_msgs = [loading_msg_id]   # kumpulkan ID pesan sementara
 
             if not edit_mode:
                 # ── Caddy web server config ───────────────────────────────
                 if caddy_enabled:
-                    bot.send_message(chat_id, "🔧 *Mengatur Domain web server...*")
+                    _m = bot.send_message(chat_id, "🔧 *Mengatur Domain web server...*")
+                    _tmp_msgs.append(_m.message_id)
                     try:
                         web_root     = os.path.abspath(project_dir)
                         caddy_result = configure_caddy_site(
@@ -401,7 +440,8 @@ def make_bot(env: dict):
 
                 # ── Cloudflare DNS record ─────────────────────────────────
                 if cf_enabled:
-                    bot.send_message(chat_id, "🌐 *Mendaftarkan DNS record di Cloudflare...*")
+                    _m = bot.send_message(chat_id, "🌐 *Mendaftarkan DNS record di Cloudflare...*")
+                    _tmp_msgs.append(_m.message_id)
                     try:
                         dns = setup_subdomain(
                             api_token   = cf_api_token,
@@ -435,14 +475,19 @@ def make_bot(env: dict):
                 "created_at_str": time.strftime("%d %b %Y %H:%M UTC", time.gmtime()),
             }
             _save_registry(reg)
+            _update_public_projects()
+
+            # ── Hapus semua pesan sementara ───────────────────────────────
+            _delete_msgs(chat_id, _tmp_msgs)
 
             # ── Pesan sukses ──────────────────────────────────────────────
             if edit_mode:
                 bot.send_message(chat_id,
                     f"✅ *Landing page berhasil diperbarui!*\n\n"
+                    f"🎨 Judul : {page_title}\n"
                     f"🎨 Warna : {color_theme} ({color_name})\n\n"
-                    f"🌐 Akses: *{fn_base}.{domain}*\n\n"
-                    "Ketik /start untuk melihat menu."
+                    f"🌐 Akses: *{fn_base}.{domain}*",
+                    reply_markup=_main_menu_markup()
                 )
             else:
                 bot.send_message(chat_id,
@@ -454,14 +499,11 @@ def make_bot(env: dict):
                 )
                 bot.send_message(chat_id,
                     f"Hallo landingpage kamu telah berhasil dibuat "
-                    f"akses dengan *{fn_base}.{domain}*"
-                )
-                bot.send_message(chat_id,
+                    f"akses dengan *{fn_base}.{domain}*\n\n"
                     "⏳ *Perhatian:* websitemu telah dibuat, mohon menunggu proses "
                     "propagasi agar domain kamu bisa diakses dengan lancar.\n"
                     "Kami akan memberi tahu jika domain sudah dapat diakses."
                 )
-                # Mulai pengecekan propagasi di background
                 threading.Thread(
                     target=_check_propagation,
                     args=(chat_id, f"https://{fn_base}.{domain}"),
@@ -607,6 +649,28 @@ def make_bot(env: dict):
         raw_name = entry["raw_name"]
         url      = f"https://{fn_base}.{domain}"
 
+        if data == "main_menu":
+            bot.answer_callback_query(call.id)
+            fn_base  = entry["fn_base"]
+            raw_name = entry["raw_name"]
+            url      = f"https://{fn_base}.{domain}"
+            markup   = tg_types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                tg_types.InlineKeyboardButton("ℹ️ Info",         callback_data="menu_info"),
+                tg_types.InlineKeyboardButton("✍️ Prompt Ulang", callback_data="menu_edit_desc"),
+            )
+            markup.add(
+                tg_types.InlineKeyboardButton("🖼 Ganti Foto",   callback_data="menu_edit_photo"),
+            )
+            bot.send_message(chat_id,
+                f"👋 *Menu Landing Page*\n\n"
+                f"📌 *{raw_name}*\n"
+                f"🌐 {url}\n\n"
+                "Pilih tindakan:",
+                reply_markup=markup
+            )
+            return
+
         if data == "menu_info":
             bot.answer_callback_query(call.id)
             bot.send_message(chat_id,
@@ -740,24 +804,28 @@ def make_bot(env: dict):
                 bot.send_message(chat_id, "⚠️ Foto hero belum ada. Upload foto dulu."); return
 
             session["state"] = S_BUSY
-            bot.send_message(chat_id,
+            _lm = bot.send_message(chat_id,
                 "⏳ *Sedang generate landing page...*\n"
                 "_Proses ini membutuhkan 30–90 detik, mohon tunggu._\n\n"
                 "☕ Sambil nunggu, cek kopi dulu ya!"
             )
             threading.Thread(
-                target=_run_generation, args=(chat_id, session, text), daemon=True
+                target=_run_generation,
+                args=(chat_id, session, text, _lm.message_id),
+                daemon=True,
             ).start()
 
         # ── EDIT: hanya ubah deskripsi, foto dipakai ulang ───────────────────
         elif state == S_EDIT_DESC:
             session["state"] = S_BUSY
-            bot.send_message(chat_id,
+            _lm = bot.send_message(chat_id,
                 "⏳ *Sedang regenerate landing page...*\n"
                 "_Proses ini membutuhkan 30–90 detik, mohon tunggu._"
             )
             threading.Thread(
-                target=_run_generation, args=(chat_id, session, text), daemon=True
+                target=_run_generation,
+                args=(chat_id, session, text, _lm.message_id),
+                daemon=True,
             ).start()
 
         elif state == S_BUSY:
@@ -916,6 +984,15 @@ def main():
     print(f"  Mode  : {'Webhook :' + str(webhook_port) if webhook_url else 'Polling'}")
     print("=" * 55)
     print()
+
+    # ── Salin static assets ke main-landing/ ─────────────────────────────────
+    _ml_dir = os.path.join(_dir, "main-landing")
+    os.makedirs(_ml_dir, exist_ok=True)
+    _copied = copy_assets_to_project(_ml_dir, template="vanilla")
+    if _copied:
+        print("[setup] Static assets disalin ke main-landing/")
+    else:
+        print("[setup] Static assets belum ada — jalankan build_assets.py dulu")
 
     bot = make_bot(env)
 
