@@ -294,6 +294,36 @@ def make_bot(env: dict):
 
     bot = telebot.TeleBot(token, parse_mode="Markdown")
 
+    # ── Propagation checker ───────────────────────────────────────────────────
+    def _check_propagation(chat_id: int, url: str,
+                           interval: int = 30, max_attempts: int = 60):
+        """
+        Cek berkala apakah domain sudah bisa diakses.
+        interval     : detik antar cek (default 30 detik)
+        max_attempts : batas maksimal coba (default 60 × 30s = 30 menit)
+        """
+        print(f"[propagation] mulai cek {url}", flush=True)
+        for attempt in range(1, max_attempts + 1):
+            time.sleep(interval)
+            try:
+                resp = req.get(url, timeout=10, allow_redirects=True)
+                # Anggap berhasil jika server menjawab (bukan 5xx)
+                if resp.status_code < 500:
+                    print(f"[propagation] {url} OK (attempt {attempt})", flush=True)
+                    bot.send_message(chat_id,
+                        f"✅ *Domain kamu sudah bisa diakses!*\n"
+                        f"🌐 {url}"
+                    )
+                    return
+            except Exception as exc:
+                print(f"[propagation] attempt {attempt}/{max_attempts}: {exc}", flush=True)
+
+        # Habis batas — beri tahu user untuk cek manual
+        bot.send_message(chat_id,
+            f"⚠️ Propagasi membutuhkan waktu lebih lama dari biasanya.\n"
+            f"Coba akses manual: {url}"
+        )
+
     # ── Generation worker (dipakai oleh S_DESC dan S_EDIT_DESC) ──────────────
     def _run_generation(chat_id: int, session: dict, description: str):
         try:
@@ -430,6 +460,17 @@ def make_bot(env: dict):
                     f"Hallo landingpage kamu telah berhasil dibuat "
                     f"akses dengan *{fn_base}.{domain}*"
                 )
+                bot.send_message(chat_id,
+                    "⏳ *Perhatian:* websitemu telah dibuat, mohon menunggu proses "
+                    "propagasi agar domain kamu bisa diakses dengan lancar.\n"
+                    "Kami akan memberi tahu jika domain sudah dapat diakses."
+                )
+                # Mulai pengecekan propagasi di background
+                threading.Thread(
+                    target=_check_propagation,
+                    args=(chat_id, f"https://{fn_base}.{domain}"),
+                    daemon=True,
+                ).start()
 
         except Exception as e:
             _log_error(f"_run_generation chat_id={chat_id}", e)

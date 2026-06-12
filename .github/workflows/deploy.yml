@@ -56,6 +56,17 @@ jobs:
                python3 -m pip install -r requirements.txt -q --break-system-packages && \
                echo 'Dependencies OK'"
 
+      - name: Build static assets
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+              "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+              "cd '${{ secrets.APP_DIR }}' && \
+               if [ ! -f static/tailwind.min.js ]; then \
+                 python3 build_assets.py && echo 'Assets built'; \
+               else \
+                 echo 'Assets already exist, skipping build'; \
+               fi"
+
       - name: Restart service
         run: |
           ssh -o StrictHostKeyChecking=no \
