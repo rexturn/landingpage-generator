@@ -311,7 +311,7 @@ def make_bot(env: dict):
                 if resp.status_code < 500:
                     print(f"[propagation] {url} OK (attempt {attempt})", flush=True)
                     bot.send_message(chat_id,
-                        f"✅ *Domain kamu sudah bisa diakses!*\n"
+                        f"✅ *Domain kamu sudah bisa diakses! ada perubaha? ketik /start*\n"
                         f"🌐 {url}"
                     )
                     return
@@ -440,8 +440,6 @@ def make_bot(env: dict):
             if edit_mode:
                 bot.send_message(chat_id,
                     f"✅ *Landing page berhasil diperbarui!*\n\n"
-                    f"📁 Folder: `{output_dir}/{fn_base}/`\n"
-                    f"🎨 Judul : {page_title}\n"
                     f"🎨 Warna : {color_theme} ({color_name})\n\n"
                     f"🌐 Akses: *{fn_base}.{domain}*\n\n"
                     "Ketik /start untuk melihat menu."
@@ -449,8 +447,6 @@ def make_bot(env: dict):
             else:
                 bot.send_message(chat_id,
                     f"✅ *Landing page berhasil dibuat!*\n\n"
-                    f"📁 Folder: `{output_dir}/{fn_base}/`\n"
-                    f"📄 File  : `{output_dir}/{fn_base}/index.html`\n"
                     f"🎨 Judul : {page_title}\n"
                     f"🎨 Warna : {color_theme} ({color_name})"
                     + caddy_msg
