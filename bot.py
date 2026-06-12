@@ -292,9 +292,10 @@ def make_bot(env: dict):
             reg = _load_registry()
             projects = [
                 {
-                    "url":        f"https://{e['fn_base']}.{domain}",
-                    "name":       e["raw_name"],
+                    "url":       f"https://{e['fn_base']}.{domain}",
+                    "name":      e["raw_name"],
                     "created_at": e.get("created_at_str", ""),
+                    "hero_img":  f"https://{e['fn_base']}.{domain}/{e.get('hero_img', 'hero.jpg')}",
                 }
                 for e in reg.values()
                 if e.get("fn_base")
@@ -315,6 +316,29 @@ def make_bot(env: dict):
                     bot.delete_message(chat_id, mid)
                 except Exception:
                     pass
+
+    # Pesan aktif terakhir bot per chat (untuk auto-hapus saat kirim baru)
+    _active_msgs: dict = {}
+
+    def _send(chat_id: int, text: str, **kwargs):
+        """Kirim pesan sekaligus hapus pesan bot sebelumnya — chat selalu bersih."""
+        prev = _active_msgs.get(chat_id)
+        if prev:
+            try:
+                bot.delete_message(chat_id, prev)
+            except Exception:
+                pass
+            _active_msgs.pop(chat_id, None)
+        m = bot.send_message(chat_id, text, **kwargs)
+        _active_msgs[chat_id] = m.message_id
+        return m
+
+    def _del_user_msg(msg):
+        """Hapus pesan dari user secara senyap."""
+        try:
+            bot.delete_message(msg.chat.id, msg.message_id)
+        except Exception:
+            pass
 
     def _main_menu_markup() -> tg_types.InlineKeyboardMarkup:
         """Tombol 'Buka Menu' yang memunculkan menu utama."""
@@ -346,23 +370,24 @@ def make_bot(env: dict):
                 # Anggap berhasil jika server menjawab (bukan 5xx)
                 if resp.status_code < 500:
                     print(f"[propagation] {url} OK (attempt {attempt})", flush=True)
-                    bot.send_message(chat_id,
-                        f"✅ *Domain kamu sudah bisa diakses! ada perubaha? ketik /start*\n"
-                        f"🌐 {url}"
+                    _send(chat_id,
+                        f"\u2705 *Domain kamu sudah bisa diakses!*\n\n"
+                        f"\ud83c\udf10 {url}\n\n"
+                        "Ada perubahan? Ketik /start untuk membuka menu.",
+                        reply_markup=_main_menu_markup()
                     )
                     return
             except Exception as exc:
                 print(f"[propagation] attempt {attempt}/{max_attempts}: {exc}", flush=True)
 
-        # Habis batas — beri tahu user untuk cek manual
-        bot.send_message(chat_id,
-            f"⚠️ Propagasi membutuhkan waktu lebih lama dari biasanya.\n"
-            f"Coba akses manual: {url}"
+        _send(chat_id,
+            f"\u26a0\ufe0f Propagasi membutuhkan waktu lebih lama dari biasanya.\n"
+            f"Coba akses manual: {url}",
+            reply_markup=_main_menu_markup()
         )
 
     # ── Generation worker (dipakai oleh S_DESC dan S_EDIT_DESC) ──────────────
-    def _run_generation(chat_id: int, session: dict, description: str,
-                         loading_msg_id: int = None):
+    def _run_generation(chat_id: int, session: dict, description: str):
         try:
             fn_base   = session["filename_base"]
             raw_name  = session["raw_name"]
@@ -405,13 +430,11 @@ def make_bot(env: dict):
 
             caddy_msg = ""
             dns_msg   = ""
-            _tmp_msgs = [loading_msg_id]   # kumpulkan ID pesan sementara
 
             if not edit_mode:
                 # ── Caddy web server config ───────────────────────────────
                 if caddy_enabled:
-                    _m = bot.send_message(chat_id, "🔧 *Mengatur Domain web server...*")
-                    _tmp_msgs.append(_m.message_id)
+                    _send(chat_id, "🔧 *Mengatur Domain web server...*")
                     try:
                         web_root     = os.path.abspath(project_dir)
                         caddy_result = configure_caddy_site(
@@ -421,9 +444,6 @@ def make_bot(env: dict):
                         )
                         caddy_msg = (
                             f"\n\n🔧 *Domain berhasil dikonfigurasi!*\n"
-                            f"  Site  : `{caddy_result['fqdn']}`\n"
-                            f"  Root  : `{caddy_result['web_root']}`\n"
-                            f"  Status: {caddy_result['action']}"
                         )
                     except Exception as caddy_err:
                         _log_error(f"caddy fqdn={fn_base}.{domain}", caddy_err)
@@ -440,8 +460,7 @@ def make_bot(env: dict):
 
                 # ── Cloudflare DNS record ─────────────────────────────────
                 if cf_enabled:
-                    _m = bot.send_message(chat_id, "🌐 *Mendaftarkan DNS record di Cloudflare...*")
-                    _tmp_msgs.append(_m.message_id)
+                    _send(chat_id, "🌐 *Mendaftarkan DNS record di Cloudflare...*")
                     try:
                         dns = setup_subdomain(
                             api_token   = cf_api_token,
@@ -454,10 +473,7 @@ def make_bot(env: dict):
                         )
                         dns_msg = (
                             f"\n\n🌐 *DNS Record berhasil {dns['action']}!*\n"
-                            f"  Type   : `{dns['type']}`\n"
                             f"  Name   : `{dns['name']}`\n"
-                            f"  Target : `{dns['content']}`\n"
-                            f"  Proxy  : {'✅ aktif' if dns['proxied'] else '⬜ bypass'}"
                         )
                     except Exception as cf_err:
                         _log_error(f"cloudflare subdomain={fn_base}", cf_err)
@@ -467,22 +483,27 @@ def make_bot(env: dict):
                         )
 
             # ── Simpan ke registry ────────────────────────────────────────
+            # Cari nama file hero yang sebenarnya di project_dir
+            _hero_filename = "hero.jpg"
+            for _ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+                _f = os.path.join(project_dir, f"hero{_ext}")
+                if os.path.isfile(_f):
+                    _hero_filename = f"hero{_ext}"
+                    break
             reg = _load_registry()
             reg[str(chat_id)] = {
                 "fn_base":        fn_base,
                 "raw_name":       raw_name,
                 "description":    description,
                 "created_at_str": time.strftime("%d %b %Y %H:%M UTC", time.gmtime()),
+                "hero_img":       _hero_filename,
             }
             _save_registry(reg)
             _update_public_projects()
 
-            # ── Hapus semua pesan sementara ───────────────────────────────
-            _delete_msgs(chat_id, _tmp_msgs)
-
             # ── Pesan sukses ──────────────────────────────────────────────
             if edit_mode:
-                bot.send_message(chat_id,
+                _send(chat_id,
                     f"✅ *Landing page berhasil diperbarui!*\n\n"
                     f"🎨 Judul : {page_title}\n"
                     f"🎨 Warna : {color_theme} ({color_name})\n\n"
@@ -490,19 +511,14 @@ def make_bot(env: dict):
                     reply_markup=_main_menu_markup()
                 )
             else:
-                bot.send_message(chat_id,
-                    f"✅ *Landing page berhasil dibuat!*\n\n"
-                    f"🎨 Judul : {page_title}\n"
-                    f"🎨 Warna : {color_theme} ({color_name})"
-                    + caddy_msg
-                    + dns_msg
-                )
-                bot.send_message(chat_id,
-                    f"Hallo landingpage kamu telah berhasil dibuat "
-                    f"akses dengan *{fn_base}.{domain}*\n\n"
-                    "⏳ *Perhatian:* websitemu telah dibuat, mohon menunggu proses "
-                    "propagasi agar domain kamu bisa diakses dengan lancar.\n"
-                    "Kami akan memberi tahu jika domain sudah dapat diakses."
+                _send(chat_id,
+                    f"Hallo! landingpage kamu telah berhasil dibuat \u2728\n\n"
+                    f"🌐 *{fn_base}.{domain}*\n"
+                    f"🎨 {page_title} • {color_theme}\n"
+                    + (f"🔧 Web server OK" if caddy_msg and "⚠" not in caddy_msg else "")
+                    + (f"  🌐 DNS OK" if dns_msg and "⚠" not in dns_msg else "")
+                    + "\n\n⏳ Mohon tunggu propagasi DNS selesai.\n"
+                    "Kami akan memberi tahu saat domain bisa diakses."
                 )
                 threading.Thread(
                     target=_check_propagation,
@@ -512,7 +528,7 @@ def make_bot(env: dict):
 
         except Exception as e:
             _log_error(f"_run_generation chat_id={chat_id}", e)
-            bot.send_message(chat_id,
+            _send(chat_id,
                 "❌ *Terjadi kesalahan saat generate landing page.*\n"
                 "Silakan coba lagi dengan ketik /start."
             )
@@ -525,9 +541,10 @@ def make_bot(env: dict):
     @bot.message_handler(commands=["start"])
     def cmd_start(msg):
         chat_id = msg.chat.id
+        _del_user_msg(msg)
         purge_expired_sessions()
         if not _is_allowed(chat_id):
-            bot.send_message(chat_id, "⛔ Kamu tidak memiliki akses ke bot ini.")
+            _send(chat_id, "⛔ Kamu tidak memiliki akses ke bot ini.")
             return
 
         reg   = _load_registry()
@@ -545,7 +562,7 @@ def make_bot(env: dict):
             markup.add(
                 tg_types.InlineKeyboardButton("🖼 Ganti Foto",    callback_data="menu_edit_photo"),
             )
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"👋 Halo! Kamu sudah punya landing page:\n\n"
                 f"📌 *{raw_name}*\n"
                 f"🌐 {url}\n\n"
@@ -554,9 +571,8 @@ def make_bot(env: dict):
             )
             return
 
-        # User baru — mulai alur pembuatan
         sessions[chat_id] = new_session()
-        bot.send_message(chat_id,
+        _send(chat_id,
             "👋 *Halo! Selamat datang di Landing Page Generator*\n\n"
             "Saya akan membantu kamu membuat landing page keren dalam 3 langkah.\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -571,12 +587,13 @@ def make_bot(env: dict):
     @bot.message_handler(commands=["baru", "reset"])
     def cmd_baru(msg):
         chat_id = msg.chat.id
+        _del_user_msg(msg)
         purge_expired_sessions()
         if not _is_allowed(chat_id):
-            bot.send_message(chat_id, "⛔ Kamu tidak memiliki akses ke bot ini.")
+            _send(chat_id, "⛔ Kamu tidak memiliki akses ke bot ini.")
             return
         sessions[chat_id] = new_session()
-        bot.send_message(chat_id,
+        _send(chat_id,
             "🔄 *Memulai dari awal...*\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━\n"
             "*STEP 1 — Nama Proyek*\n"
@@ -589,18 +606,19 @@ def make_bot(env: dict):
     @bot.message_handler(commands=["lanjut", "done"])
     def cmd_skip(msg):
         chat_id = msg.chat.id
+        _del_user_msg(msg)
         session = sessions.get(chat_id)
         if not session:
-            bot.send_message(chat_id, "Ketik /start untuk memulai."); return
+            _send(chat_id, "Ketik /start untuk memulai."); return
 
         if session["state"] == S_FEATURES:
             if not session["photos"].get("hero"):
-                bot.send_message(chat_id,
+                _send(chat_id,
                     "⚠️ Foto *hero/utama* belum diupload.\n"
                     "Kirim setidaknya 1 foto untuk melanjutkan."
                 ); return
             session["state"] = S_DESC
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"✅ Foto terkumpul:\n{slots_summary(session)}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "*STEP 3 — Deskripsi*\n"
@@ -610,15 +628,16 @@ def make_bot(env: dict):
                 "target ibu-ibu muda kota, tagline: Cantik itu Mudah_"
             )
         else:
-            bot.send_message(chat_id, "Tidak ada langkah yang bisa dilanjutkan sekarang.")
+            _send(chat_id, "Tidak ada langkah yang bisa dilanjutkan sekarang.")
 
     # ── /status ───────────────────────────────────────────────────────────────
     @bot.message_handler(commands=["status"])
     def cmd_status(msg):
         chat_id = msg.chat.id
+        _del_user_msg(msg)
         session = sessions.get(chat_id)
         if not session:
-            bot.send_message(chat_id, "Ketik /start untuk memulai."); return
+            _send(chat_id, "Ketik /start untuk memulai."); return
         state_names = {
             S_NAME:     "Menunggu nama proyek",
             S_HERO:     "Menunggu foto utama",
@@ -626,7 +645,7 @@ def make_bot(env: dict):
             S_DESC:     "Menunggu deskripsi",
             S_BUSY:     "Sedang generate...",
         }
-        bot.send_message(chat_id,
+        _send(chat_id,
             f"*Status sesi:* {state_names.get(session['state'], '?')}\n"
             f"*Proyek:* {session.get('raw_name') or '-'}\n\n"
             f"*Foto:*\n{slots_summary(session)}"
@@ -637,12 +656,19 @@ def make_bot(env: dict):
     def callback_handler(call):
         chat_id = call.message.chat.id
         data    = call.data
+        # Hapus pesan lama yang berisi tombol
+        try:
+            bot.delete_message(chat_id, call.message.message_id)
+        except Exception:
+            pass
+        _active_msgs.pop(chat_id, None)
+        bot.answer_callback_query(call.id)
 
         reg   = _load_registry()
         entry = reg.get(str(chat_id))
 
         if not entry:
-            bot.answer_callback_query(call.id, "⚠️ Data tidak ditemukan. Ketik /start.")
+            _send(chat_id, "⚠️ Data tidak ditemukan. Ketik /start.")
             return
 
         fn_base  = entry["fn_base"]
@@ -650,11 +676,7 @@ def make_bot(env: dict):
         url      = f"https://{fn_base}.{domain}"
 
         if data == "main_menu":
-            bot.answer_callback_query(call.id)
-            fn_base  = entry["fn_base"]
-            raw_name = entry["raw_name"]
-            url      = f"https://{fn_base}.{domain}"
-            markup   = tg_types.InlineKeyboardMarkup(row_width=2)
+            markup = tg_types.InlineKeyboardMarkup(row_width=2)
             markup.add(
                 tg_types.InlineKeyboardButton("ℹ️ Info",         callback_data="menu_info"),
                 tg_types.InlineKeyboardButton("✍️ Prompt Ulang", callback_data="menu_edit_desc"),
@@ -662,7 +684,7 @@ def make_bot(env: dict):
             markup.add(
                 tg_types.InlineKeyboardButton("🖼 Ganti Foto",   callback_data="menu_edit_photo"),
             )
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"👋 *Menu Landing Page*\n\n"
                 f"📌 *{raw_name}*\n"
                 f"🌐 {url}\n\n"
@@ -672,18 +694,15 @@ def make_bot(env: dict):
             return
 
         if data == "menu_info":
-            bot.answer_callback_query(call.id)
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"ℹ️ *Info Landing Page*\n\n"
                 f"📌 Nama    : *{raw_name}*\n"
-                f"📁 Folder  : `{output_dir}/{fn_base}/`\n"
                 f"🌐 URL     : {url}\n"
                 f"📅 Dibuat  : {entry.get('created_at_str', '-')}\n\n"
                 "Ketik /start untuk kembali ke menu."
             )
 
         elif data == "menu_edit_desc":
-            bot.answer_callback_query(call.id)
             sessions[chat_id] = {
                 "state":               S_EDIT_DESC,
                 "edit_mode":           True,
@@ -697,7 +716,7 @@ def make_bot(env: dict):
             }
             last_desc = entry.get("description", "")
             hint = (f"\n\n_Deskripsi sebelumnya:_\n_{last_desc}_" if last_desc else "")
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"✍️ *Prompt Ulang — {raw_name}*\n\n"
                 "Foto yang ada akan dipakai ulang.\n"
                 "Ketik *deskripsi baru* untuk landing page kamu:"
@@ -705,7 +724,6 @@ def make_bot(env: dict):
             )
 
         elif data == "menu_edit_photo":
-            bot.answer_callback_query(call.id)
             sessions[chat_id] = {
                 "state":         S_HERO,
                 "edit_mode":     True,
@@ -716,7 +734,7 @@ def make_bot(env: dict):
                 "feature_count": 0,
                 "created_at":    time.time(),
             }
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"🖼 *Ganti Foto — {raw_name}*\n\n"
                 "Upload *foto utama (hero)* baru.\n"
                 "Setelah itu upload foto tambahan (opsional),\n"
@@ -728,111 +746,88 @@ def make_bot(env: dict):
     @bot.message_handler(content_types=["text"])
     def text_handler(msg):
         chat_id = msg.chat.id
+        _del_user_msg(msg)
         purge_expired_sessions()
         if not _is_allowed(chat_id):
             return
-        text    = msg.text.strip()
+        text = msg.text.strip()
 
         if chat_id not in sessions:
-            bot.send_message(chat_id, "Ketik /start untuk memulai."); return
+            _send(chat_id, "Ketik /start untuk memulai."); return
 
         session = sessions[chat_id]
         state   = session["state"]
 
-        # ── STEP 1: nama proyek ───────────────────────────────────────────────
         if state == S_NAME:
             raw_text = text.strip()
             if not re.search(r"[a-zA-Z0-9]", raw_text):
-                bot.send_message(chat_id,
-                    "⚠️ Nama tidak valid. Gunakan huruf dan angka.\n"
-                    "Coba lagi:"
-                ); return
+                _send(chat_id, "⚠️ Nama tidak valid. Gunakan huruf dan angka.\nCoba lagi:"); return
 
-            # Generate slug bersih via AI (tanpa underscore/spasi)
-            bot.send_message(chat_id, "⏳ _Membuat nama domain yang cocok..._")
+            _send(chat_id, "⏳ _Membuat nama domain yang cocok..._")
             slug = generate_domain_slug(api_key, model, raw_text)
 
-            # ── Validasi tabrakan: folder lokal + DNS ─────────────────────────
             base_slug = slug
             counter   = 1
-            _zid_cache: list = []          # cache zone_id agar tidak lookup 2x
+            _zid_cache: list = []
             while True:
-                # 1. Cek folder lokal
                 if is_duplicate(output_dir, slug):
                     slug = f"{base_slug}{counter}"; counter += 1; continue
-                # 2. Cek DNS Cloudflare
                 if cf_enabled:
                     try:
                         if not _zid_cache:
                             _zid_cache.append(
-                                cf_zone_id or get_zone_id(
-                                    cf_api_token, domain, cf_account_id or None
-                                )
+                                cf_zone_id or get_zone_id(cf_api_token, domain, cf_account_id or None)
                             )
-                        fqdn = f"{slug}.{domain}"
-                        if find_existing_record(cf_api_token, _zid_cache[0], fqdn):
+                        if find_existing_record(cf_api_token, _zid_cache[0], f"{slug}.{domain}"):
                             slug = f"{base_slug}{counter}"; counter += 1; continue
                     except Exception:
-                        pass   # jika CF gagal, lanjut tanpa DNS check
+                        pass
                 break
-            # ─────────────────────────────────────────────────────────────────
 
             session["raw_name"]      = raw_text
             session["filename_base"] = slug
             session["state"]         = S_HERO
 
             suffix_note = f" _(auto: `{slug}` sudah dipakai, diganti)_" if slug != base_slug else ""
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"✅ Nama proyek: *{raw_text}*\n"
-                f"🌐 Domain    : `{slug}.{domain}`{suffix_note}\n"
-                f"📁 Folder    : `{output_dir}/{slug}/`\n\n"
+                f"🌐 Domain    : `{slug}.{domain}`{suffix_note}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "*STEP 2 — Upload Foto*\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "Upload *foto utama (hero)* kamu.\n\n"
-                "💡 *Tips berdasarkan ukuran foto:*\n"
-                "• 📐 Landscape (lebar)  → otomatis jadi *hero banner*\n"
-                "• 📐 Square (kotak)     → otomatis jadi *card fitur*\n"
-                "• 📐 Portrait (tinggi)  → otomatis jadi *about/team*\n\n"
+                "💡 Ukuran foto:\n"
+                "• 📐 Landscape → *hero banner*\n"
+                "• 📐 Square    → *card fitur*\n"
+                "• 📐 Portrait  → *about/team*\n\n"
                 "Kirim foto pertama sekarang:"
             )
 
-        # ── STEP 3: deskripsi + generate ─────────────────────────────────────
         elif state == S_DESC:
             if not session["photos"].get("hero"):
                 session["state"] = S_HERO
-                bot.send_message(chat_id, "⚠️ Foto hero belum ada. Upload foto dulu."); return
-
+                _send(chat_id, "⚠️ Foto hero belum ada. Upload foto dulu."); return
             session["state"] = S_BUSY
-            _lm = bot.send_message(chat_id,
+            _send(chat_id,
                 "⏳ *Sedang generate landing page...*\n"
                 "_Proses ini membutuhkan 30–90 detik, mohon tunggu._\n\n"
                 "☕ Sambil nunggu, cek kopi dulu ya!"
             )
-            threading.Thread(
-                target=_run_generation,
-                args=(chat_id, session, text, _lm.message_id),
-                daemon=True,
-            ).start()
+            threading.Thread(target=_run_generation, args=(chat_id, session, text), daemon=True).start()
 
-        # ── EDIT: hanya ubah deskripsi, foto dipakai ulang ───────────────────
         elif state == S_EDIT_DESC:
             session["state"] = S_BUSY
-            _lm = bot.send_message(chat_id,
+            _send(chat_id,
                 "⏳ *Sedang regenerate landing page...*\n"
                 "_Proses ini membutuhkan 30–90 detik, mohon tunggu._"
             )
-            threading.Thread(
-                target=_run_generation,
-                args=(chat_id, session, text, _lm.message_id),
-                daemon=True,
-            ).start()
+            threading.Thread(target=_run_generation, args=(chat_id, session, text), daemon=True).start()
 
         elif state == S_BUSY:
-            bot.send_message(chat_id, "⏳ Masih sedang generate, harap tunggu...")
+            _send(chat_id, "⏳ Masih sedang generate, harap tunggu...")
 
         else:
-            bot.send_message(chat_id,
+            _send(chat_id,
                 "📸 Saya sedang menunggu foto.\n"
                 "Kirim foto atau ketik /lanjut untuk lanjut ke deskripsi."
             )
@@ -841,76 +836,70 @@ def make_bot(env: dict):
     @bot.message_handler(content_types=["photo", "document"])
     def photo_handler(msg):
         chat_id = msg.chat.id
+        _del_user_msg(msg)
         purge_expired_sessions()
         if not _is_allowed(chat_id):
             return
 
         if chat_id not in sessions:
-            bot.send_message(chat_id, "Ketik /start untuk memulai."); return
+            _send(chat_id, "Ketik /start untuk memulai."); return
 
         session = sessions[chat_id]
         state   = session["state"]
 
         if state == S_BUSY:
-            bot.send_message(chat_id, "⏳ Masih sedang generate..."); return
+            _send(chat_id, "⏳ Masih sedang generate..."); return
 
         if state == S_NAME:
-            bot.send_message(chat_id,
-                "⚠️ Masukkan *nama proyek* dulu sebelum upload foto."
-            ); return
+            _send(chat_id, "⚠️ Masukkan *nama proyek* dulu sebelum upload foto."); return
 
         if state == S_DESC:
-            bot.send_message(chat_id,
+            _send(chat_id,
                 "⚠️ Saya sedang menunggu *deskripsi* (teks), bukan foto.\n"
                 "Ketik deskripsi landing page kamu."
             ); return
 
         if state not in (S_HERO, S_FEATURES):
-            bot.send_message(chat_id, "Ketik /start untuk memulai."); return
+            _send(chat_id, "Ketik /start untuk memulai."); return
 
         # Download foto
         try:
             if msg.content_type == "photo":
-                best    = msg.photo[-1]         # ambil resolusi terbesar
+                best    = msg.photo[-1]
                 file_id = best.file_id
                 width   = best.width
                 height  = best.height
-            else:                               # document
+            else:
                 doc = msg.document
                 if not doc.mime_type or not doc.mime_type.startswith("image/"):
-                    bot.send_message(chat_id,
-                        "⚠️ File bukan gambar. Kirim file gambar (jpg/png/webp)."
-                    ); return
+                    _send(chat_id, "⚠️ File bukan gambar. Kirim file gambar (jpg/png/webp)."); return
                 file_id = doc.file_id
                 width   = getattr(doc, "width",  0) or 0
                 height  = getattr(doc, "height", 0) or 0
 
-            bot.send_message(chat_id, "📥 Mengunduh foto...")
+            _send(chat_id, "📥 Mengunduh foto...")
             tmp_path = download_telegram_file(bot, file_id)
             session["tmp_files"].append(tmp_path)
 
         except Exception as e:
-                bot.send_message(chat_id, "❌ Gagal mengunduh foto. Coba kirim ulang.")
-                _log_error(f"download_telegram_file chat_id={chat_id}", e)
-                return
+            _send(chat_id, "❌ Gagal mengunduh foto. Coba kirim ulang.")
+            _log_error(f"download_telegram_file chat_id={chat_id}", e)
+            return
 
         # Tentukan role
         if state == S_HERO:
-            # Foto pertama selalu jadi hero
-            role = "hero"
             session["photos"]["hero"] = tmp_path
             session["state"] = S_FEATURES
-            s_note = shape_note(width, height)
+            s_note   = shape_note(width, height)
             size_str = f"{width}×{height}px" if width and height else "ukuran tidak diketahui"
-            bot.send_message(chat_id,
+            _send(chat_id,
                 f"✅ *Foto hero tersimpan!*\n"
                 f"📐 {s_note} ({size_str})\n\n"
                 f"*Slot foto saat ini:*\n{slots_summary(session)}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
                 "*STEP 2b — Foto Tambahan (Opsional)*\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "Upload foto tambahan untuk section *Fitur* dan *About*.\n"
-                "Bot akan otomatis memilih slot berdasarkan ukuran foto.\n\n"
+                "Upload foto tambahan untuk section *Fitur* dan *About*.\n\n"
                 "Kirim foto atau ketik /lanjut untuk lanjut ke deskripsi."
             )
 
@@ -918,9 +907,8 @@ def make_bot(env: dict):
             role = classify_and_assign(width, height, session)
 
             if role is None:
-                # Semua slot penuh tapi foto masih dikirim — arahkan ke deskripsi
                 session["state"] = S_DESC
-                bot.send_message(chat_id,
+                _send(chat_id,
                     "✅ Semua slot foto sudah terisi!\n\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━\n"
                     "*STEP 3 — Deskripsi*\n"
@@ -936,7 +924,6 @@ def make_bot(env: dict):
 
             s_note   = shape_note(width, height)
             size_str = f"{width}×{height}px" if width and height else ""
-
             msg_text = (
                 f"✅ *Tersimpan sebagai: {role_label(role)}*\n"
                 f"📐 {s_note} {size_str}\n\n"
@@ -945,7 +932,7 @@ def make_bot(env: dict):
 
             if all_slots_full(session):
                 session["state"] = S_DESC
-                bot.send_message(chat_id,
+                _send(chat_id,
                     msg_text +
                     "✅ Semua slot terisi! Lanjut otomatis ke deskripsi.\n\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -956,8 +943,7 @@ def make_bot(env: dict):
                     "target ibu-ibu muda kota, tagline: Cantik itu Mudah_"
                 )
             else:
-                msg_text += "Kirim foto lagi atau ketik /lanjut untuk lanjut."
-                bot.send_message(chat_id, msg_text)
+                _send(chat_id, msg_text + "Kirim foto lagi atau ketik /lanjut untuk lanjut.")
 
     return bot
 

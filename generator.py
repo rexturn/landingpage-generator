@@ -44,6 +44,7 @@ def _html_wrap(body: str, page_title: str, color_theme: str,
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{page_title}</title>
+  <link rel="icon" type="image/webp" href="favicon.webp">
   {tw}
   <script>
     tailwind.config = {{
@@ -81,6 +82,11 @@ def copy_assets_to_project(project_dir: str, template: str = "vanilla") -> bool:
     if os.path.exists(fa_dst):
         shutil.rmtree(fa_dst)
     shutil.copytree(fa_src, fa_dst)
+
+    # Salin favicon
+    fav_src = os.path.join(STATIC_DIR, "favicon.webp")
+    if os.path.isfile(fav_src):
+        shutil.copy2(fav_src, os.path.join(project_dir, "favicon.webp"))
 
     # Salin React assets jika template react
     if template == "react":
