@@ -20,6 +20,7 @@ import time
 import tempfile
 import threading
 import traceback
+import json
 import requests as req
 
 try:
@@ -68,7 +69,8 @@ S_NAME     = "waiting_name"
 S_HERO     = "waiting_hero"
 S_FEATURES = "waiting_features"
 S_DESC     = "waiting_description"
-S_BUSY     = "generating"
+S_BUSY      = "generating"
+S_EDIT_DESC = "edit_description"   # mode edit: hanya ubah deskripsi, foto dipakai ulang
 
 sessions: dict = {}   # {chat_id: session_dict}
 
@@ -269,6 +271,22 @@ def make_bot(env: dict):
     caddy_json    = env.get("CADDY_JSON", "/etc/caddy/caddy.json")
     caddy_enabled = bool(caddy_json)
 
+    # ── User registry (1 landing page per user) ───────────────────────────────
+    _registry_path = os.path.join(output_dir, ".registry.json")
+
+    def _load_registry() -> dict:
+        try:
+            with open(_registry_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def _save_registry(data: dict):
+        os.makedirs(output_dir, exist_ok=True)
+        with open(_registry_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    # ──────────────────────────────────────────────────────────────────────────
+
     if not token:
         print("[ERROR] API_TELEGRAM tidak ditemukan di .env"); sys.exit(1)
     if not api_key:
@@ -276,14 +294,188 @@ def make_bot(env: dict):
 
     bot = telebot.TeleBot(token, parse_mode="Markdown")
 
+    # ── Generation worker (dipakai oleh S_DESC dan S_EDIT_DESC) ──────────────
+    def _run_generation(chat_id: int, session: dict, description: str):
+        try:
+            fn_base   = session["filename_base"]
+            raw_name  = session["raw_name"]
+            edit_mode = session.get("edit_mode", False)
+
+            if session.get("use_existing_photos"):
+                # Prompt-ulang: pakai foto yang sudah ada di folder project
+                project_dir     = os.path.join(output_dir, fn_base)
+                photo_filenames = {}
+                for _key in ["hero", "feature_1", "feature_2", "feature_3", "about"]:
+                    for _ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]:
+                        _f = os.path.join(project_dir, f"{_key}{_ext}")
+                        if os.path.isfile(_f):
+                            photo_filenames[_key] = f"{_key}{_ext}"
+                            break
+                    else:
+                        photo_filenames[_key] = "hero.jpg"   # fallback
+            else:
+                selected        = fill_missing_photos(session)
+                project_dir     = setup_project_dir(output_dir, fn_base)
+                photo_filenames = copy_photos_to_project(selected, project_dir)
+
+            # Analisis tema
+            meta        = analyze_prompt(api_key, model, description, fn_base)
+            page_title  = meta.get("page_title", raw_name)
+            color_theme = meta.get("color_theme", "#3B82F6")
+            color_name  = meta.get("color_name", "blue")
+
+            # Generate HTML
+            prompt   = build_html_prompt(raw_name, description, page_title,
+                                         color_theme, color_name,
+                                         photo_filenames, language)
+            raw_html = call_ai(api_key, model, get_system_prompt(template_type),
+                               prompt, max_tokens=max_tokens)
+            html     = extract_code(raw_html)
+            save_project_html(html, project_dir, page_title, color_theme,
+                              language, template_type)
+
+            cleanup_tmp(session)
+
+            caddy_msg = ""
+            dns_msg   = ""
+
+            if not edit_mode:
+                # ── Caddy web server config ───────────────────────────────
+                if caddy_enabled:
+                    bot.send_message(chat_id, "🔧 *Mengatur Domain web server...*")
+                    try:
+                        web_root     = os.path.abspath(project_dir)
+                        caddy_result = configure_caddy_site(
+                            fqdn            = f"{fn_base}.{domain}",
+                            web_root        = web_root,
+                            caddy_json_path = caddy_json,
+                        )
+                        caddy_msg = (
+                            f"\n\n🔧 *Domain berhasil dikonfigurasi!*\n"
+                            f"  Site  : `{caddy_result['fqdn']}`\n"
+                            f"  Root  : `{caddy_result['web_root']}`\n"
+                            f"  Status: {caddy_result['action']}"
+                        )
+                    except Exception as caddy_err:
+                        _log_error(f"caddy fqdn={fn_base}.{domain}", caddy_err)
+                        err_str = str(caddy_err)
+                        if "tidak valid untuk SSL" in err_str or "di-rollback" in err_str:
+                            try:
+                                remove_caddy_site(f"{fn_base}.{domain}", caddy_json)
+                            except Exception:
+                                pass
+                        caddy_msg = (
+                            "\n\n⚠️ *Konfigurasi web server gagal.*\n"
+                            "_Halaman sudah dibuat tapi belum bisa diakses online._"
+                        )
+
+                # ── Cloudflare DNS record ─────────────────────────────────
+                if cf_enabled:
+                    bot.send_message(chat_id, "🌐 *Mendaftarkan DNS record di Cloudflare...*")
+                    try:
+                        dns = setup_subdomain(
+                            api_token   = cf_api_token,
+                            account_id  = cf_account_id,
+                            zone_id     = cf_zone_id,
+                            subdomain   = fn_base,
+                            base_domain = domain,
+                            target      = cf_dns_target,
+                            proxied     = False,
+                        )
+                        dns_msg = (
+                            f"\n\n🌐 *DNS Record berhasil {dns['action']}!*\n"
+                            f"  Type   : `{dns['type']}`\n"
+                            f"  Name   : `{dns['name']}`\n"
+                            f"  Target : `{dns['content']}`\n"
+                            f"  Proxy  : {'✅ aktif' if dns['proxied'] else '⬜ bypass'}"
+                        )
+                    except Exception as cf_err:
+                        _log_error(f"cloudflare subdomain={fn_base}", cf_err)
+                        dns_msg = (
+                            "\n\n⚠️ *Pendaftaran domain gagal.*\n"
+                            f"_Domain `{fn_base}.{domain}` akan aktif setelah dikonfigurasi admin._"
+                        )
+
+            # ── Simpan ke registry ────────────────────────────────────────
+            reg = _load_registry()
+            reg[str(chat_id)] = {
+                "fn_base":        fn_base,
+                "raw_name":       raw_name,
+                "description":    description,
+                "created_at_str": time.strftime("%d %b %Y %H:%M UTC", time.gmtime()),
+            }
+            _save_registry(reg)
+
+            # ── Pesan sukses ──────────────────────────────────────────────
+            if edit_mode:
+                bot.send_message(chat_id,
+                    f"✅ *Landing page berhasil diperbarui!*\n\n"
+                    f"📁 Folder: `{output_dir}/{fn_base}/`\n"
+                    f"🎨 Judul : {page_title}\n"
+                    f"🎨 Warna : {color_theme} ({color_name})\n\n"
+                    f"🌐 Akses: *{fn_base}.{domain}*\n\n"
+                    "Ketik /start untuk melihat menu."
+                )
+            else:
+                bot.send_message(chat_id,
+                    f"✅ *Landing page berhasil dibuat!*\n\n"
+                    f"📁 Folder: `{output_dir}/{fn_base}/`\n"
+                    f"📄 File  : `{output_dir}/{fn_base}/index.html`\n"
+                    f"🎨 Judul : {page_title}\n"
+                    f"🎨 Warna : {color_theme} ({color_name})"
+                    + caddy_msg
+                    + dns_msg
+                )
+                bot.send_message(chat_id,
+                    f"Hallo landingpage kamu telah berhasil dibuat "
+                    f"akses dengan *{fn_base}.{domain}*"
+                )
+
+        except Exception as e:
+            _log_error(f"_run_generation chat_id={chat_id}", e)
+            bot.send_message(chat_id,
+                "❌ *Terjadi kesalahan saat generate landing page.*\n"
+                "Silakan coba lagi dengan ketik /start."
+            )
+            cleanup_tmp(session)
+        finally:
+            if chat_id in sessions:
+                del sessions[chat_id]
+
     # ── /start ────────────────────────────────────────────────────────────────
-    @bot.message_handler(commands=["start", "baru", "reset"])
+    @bot.message_handler(commands=["start"])
     def cmd_start(msg):
         chat_id = msg.chat.id
         purge_expired_sessions()
         if not _is_allowed(chat_id):
             bot.send_message(chat_id, "⛔ Kamu tidak memiliki akses ke bot ini.")
             return
+
+        reg   = _load_registry()
+        entry = reg.get(str(chat_id))
+
+        if entry:
+            fn_base  = entry["fn_base"]
+            raw_name = entry["raw_name"]
+            url      = f"https://{fn_base}.{domain}"
+            markup   = tg_types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                tg_types.InlineKeyboardButton("ℹ️ Info",          callback_data="menu_info"),
+                tg_types.InlineKeyboardButton("✍️ Prompt Ulang",  callback_data="menu_edit_desc"),
+            )
+            markup.add(
+                tg_types.InlineKeyboardButton("🖼 Ganti Foto",    callback_data="menu_edit_photo"),
+            )
+            bot.send_message(chat_id,
+                f"👋 Halo! Kamu sudah punya landing page:\n\n"
+                f"📌 *{raw_name}*\n"
+                f"🌐 {url}\n\n"
+                "Pilih tindakan:",
+                reply_markup=markup
+            )
+            return
+
+        # User baru — mulai alur pembuatan
         sessions[chat_id] = new_session()
         bot.send_message(chat_id,
             "👋 *Halo! Selamat datang di Landing Page Generator*\n\n"
@@ -294,6 +486,24 @@ def make_bot(env: dict):
             "Ketik *nama proyek* kamu:\n"
             "_Contoh: Toko Baju Online_\n\n"
             "💡 Nama ini akan menjadi nama folder dan URL landing page kamu."
+        )
+
+    # ── /baru & /reset — force mulai dari awal ───────────────────────────────
+    @bot.message_handler(commands=["baru", "reset"])
+    def cmd_baru(msg):
+        chat_id = msg.chat.id
+        purge_expired_sessions()
+        if not _is_allowed(chat_id):
+            bot.send_message(chat_id, "⛔ Kamu tidak memiliki akses ke bot ini.")
+            return
+        sessions[chat_id] = new_session()
+        bot.send_message(chat_id,
+            "🔄 *Memulai dari awal...*\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "*STEP 1 — Nama Proyek*\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Ketik *nama proyek* kamu:\n"
+            "_Contoh: Toko Baju Online_"
         )
 
     # ── /lanjut ───────────────────────────────────────────────────────────────
@@ -342,6 +552,76 @@ def make_bot(env: dict):
             f"*Proyek:* {session.get('raw_name') or '-'}\n\n"
             f"*Foto:*\n{slots_summary(session)}"
         )
+
+    # ── Callback query — tombol inline keyboard ───────────────────────────────
+    @bot.callback_query_handler(func=lambda call: True)
+    def callback_handler(call):
+        chat_id = call.message.chat.id
+        data    = call.data
+
+        reg   = _load_registry()
+        entry = reg.get(str(chat_id))
+
+        if not entry:
+            bot.answer_callback_query(call.id, "⚠️ Data tidak ditemukan. Ketik /start.")
+            return
+
+        fn_base  = entry["fn_base"]
+        raw_name = entry["raw_name"]
+        url      = f"https://{fn_base}.{domain}"
+
+        if data == "menu_info":
+            bot.answer_callback_query(call.id)
+            bot.send_message(chat_id,
+                f"ℹ️ *Info Landing Page*\n\n"
+                f"📌 Nama    : *{raw_name}*\n"
+                f"📁 Folder  : `{output_dir}/{fn_base}/`\n"
+                f"🌐 URL     : {url}\n"
+                f"📅 Dibuat  : {entry.get('created_at_str', '-')}\n\n"
+                "Ketik /start untuk kembali ke menu."
+            )
+
+        elif data == "menu_edit_desc":
+            bot.answer_callback_query(call.id)
+            sessions[chat_id] = {
+                "state":               S_EDIT_DESC,
+                "edit_mode":           True,
+                "use_existing_photos": True,
+                "filename_base":       fn_base,
+                "raw_name":            raw_name,
+                "photos":              {},
+                "tmp_files":           [],
+                "feature_count":       0,
+                "created_at":          time.time(),
+            }
+            last_desc = entry.get("description", "")
+            hint = (f"\n\n_Deskripsi sebelumnya:_\n_{last_desc}_" if last_desc else "")
+            bot.send_message(chat_id,
+                f"✍️ *Prompt Ulang — {raw_name}*\n\n"
+                "Foto yang ada akan dipakai ulang.\n"
+                "Ketik *deskripsi baru* untuk landing page kamu:"
+                + hint
+            )
+
+        elif data == "menu_edit_photo":
+            bot.answer_callback_query(call.id)
+            sessions[chat_id] = {
+                "state":         S_HERO,
+                "edit_mode":     True,
+                "filename_base": fn_base,
+                "raw_name":      raw_name,
+                "photos":        {},
+                "tmp_files":     [],
+                "feature_count": 0,
+                "created_at":    time.time(),
+            }
+            bot.send_message(chat_id,
+                f"🖼 *Ganti Foto — {raw_name}*\n\n"
+                "Upload *foto utama (hero)* baru.\n"
+                "Setelah itu upload foto tambahan (opsional),\n"
+                "lalu ketik /lanjut untuk lanjut ke deskripsi.\n\n"
+                "Kirim foto pertama sekarang:"
+            )
 
     # ── Text handler ──────────────────────────────────────────────────────────
     @bot.message_handler(content_types=["text"])
@@ -423,145 +703,25 @@ def make_bot(env: dict):
                 bot.send_message(chat_id, "⚠️ Foto hero belum ada. Upload foto dulu."); return
 
             session["state"] = S_BUSY
-            description      = text
-
             bot.send_message(chat_id,
                 "⏳ *Sedang generate landing page...*\n"
                 "_Proses ini membutuhkan 30–90 detik, mohon tunggu._\n\n"
                 "☕ Sambil nunggu, cek kopi dulu ya!"
             )
+            threading.Thread(
+                target=_run_generation, args=(chat_id, session, text), daemon=True
+            ).start()
 
-            def run_generation():
-                try:
-                    fn_base  = session["filename_base"]
-                    raw_name = session["raw_name"]
-                    selected = fill_missing_photos(session)
-
-                    # Analisis tema
-                    meta        = analyze_prompt(api_key, model, description, fn_base)
-                    page_title  = meta.get("page_title", raw_name)
-                    color_theme = meta.get("color_theme", "#3B82F6")
-                    color_name  = meta.get("color_name", "blue")
-
-                    # Setup folder & salin foto
-                    project_dir     = setup_project_dir(output_dir, fn_base)
-                    photo_filenames = copy_photos_to_project(selected, project_dir)
-
-                    # Generate HTML
-                    prompt   = build_html_prompt(raw_name, description, page_title,
-                                                 color_theme, color_name,
-                                                 photo_filenames, language)
-                    raw_html = call_ai(api_key, model, get_system_prompt(template_type),
-                                       prompt, max_tokens=max_tokens)
-                    html     = extract_code(raw_html)
-                    save_project_html(html, project_dir, page_title, color_theme,
-                                      language, template_type)
-
-                    # Bersihkan temp files
-                    cleanup_tmp(session)
-
-                    url       = f"https://{fn_base}.{domain}"
-                    caddy_msg = ""
-                    dns_msg   = ""
-
-                    # ── Caddy web server config ───────────────────────────
-                    if caddy_enabled:
-                        bot.send_message(chat_id,
-                            "🔧 *Mengatur Domain web server...*"
-                        )
-                        try:
-                            web_root     = os.path.abspath(project_dir)
-                            caddy_result = configure_caddy_site(
-                                fqdn            = f"{fn_base}.{domain}",
-                                web_root        = web_root,
-                                caddy_json_path = caddy_json,
-                            )
-                            caddy_msg = (
-                                f"\n\n🔧 *Domain berhasil dikonfigurasi!*\n"
-                                f"  Site  : `{caddy_result['fqdn']}`\n"
-                                f"  Root  : `{caddy_result['web_root']}`\n"
-                                f"  Status: {caddy_result['action']}"
-                            )
-                        except Exception as caddy_err:
-                            _log_error(f"caddy configure_caddy_site fqdn={fn_base}.{domain}", caddy_err)
-                            err_str = str(caddy_err)
-                            # Bersihkan entri caddy.json jika perlu (sudah di-rollback oleh caddy.py)
-                            if "tidak valid untuk SSL" in err_str or "di-rollback" in err_str:
-                                try:
-                                    remove_caddy_site(f"{fn_base}.{domain}", caddy_json)
-                                except Exception:
-                                    pass
-                            caddy_msg = (
-                                "\n\n⚠️ *Konfigurasi web server gagal.*\n"
-                                "_Halaman sudah dibuat tapi belum bisa diakses online. "
-                                "Hubungi admin untuk bantuan._"
-                            )
-                    # ─────────────────────────────────────────────────────
-
-                    # ── Cloudflare DNS record ─────────────────────────────
-                    if cf_enabled:
-                        bot.send_message(chat_id,
-                            "🌐 *Mendaftarkan DNS record di Cloudflare...*"
-                        )
-                        try:
-                            dns = setup_subdomain(
-                                api_token   = cf_api_token,
-                                account_id  = cf_account_id,
-                                zone_id     = cf_zone_id,
-                                subdomain   = fn_base,
-                                base_domain = domain,
-                                target      = cf_dns_target,
-                                proxied     = True,
-                            )
-                            dns_msg = (
-                                f"\n\n🌐 *DNS Record berhasil {dns['action']}!*\n"
-                                f"  Type   : `{dns['type']}`\n"
-                                f"  Name   : `{dns['name']}`\n"
-                                f"  Target : `{dns['content']}`\n"
-                                f"  Proxy  : {'✅ aktif (Cloudflare CDN)' if dns['proxied'] else '⬜ bypass'}"
-                            )
-                        except Exception as cf_err:
-                            _log_error(f"cloudflare setup_subdomain subdomain={fn_base}", cf_err)
-                            dns_msg = (
-                                "\n\n⚠️ *Pendaftaran domain gagal.*\n"
-                                f"_Halaman sudah dibuat. Domain `{fn_base}.{domain}` "
-                                "akan aktif setelah dikonfigurasi ulang oleh admin._"
-                            )
-                    # ─────────────────────────────────────────────────────
-
-                    # Pesan sukses detail
-                    bot.send_message(chat_id,
-                        f"✅ *Landing page berhasil dibuat!*\n\n"
-                        f"📁 Folder: `{output_dir}/{fn_base}/`\n"
-                        f"📄 File  : `{output_dir}/{fn_base}/index.html`\n"
-                        f"🎨 Judul : {page_title}\n"
-                        f"🎨 Warna : {color_theme} ({color_name})"
-                        + caddy_msg
-                        + dns_msg
-                        + f"\n\nKetik /start untuk membuat landing page baru."
-                    )
-
-                    # Notifikasi sesuai permintaan
-                    bot.send_message(chat_id,
-                        f"Hallo landingpage kamu telah berhasil dibuat "
-                        f"akses dengan *{fn_base}.{domain}*"
-                    )
-
-                    if chat_id in sessions:
-                        del sessions[chat_id]
-
-                except Exception as e:
-                    _log_error(f"run_generation chat_id={chat_id}", e)
-                    bot.send_message(chat_id,
-                        "❌ *Terjadi kesalahan saat membuat landing page.*\n"
-                        "Silakan coba lagi dengan ketik /start."
-                    )
-                    cleanup_tmp(session)
-                    if chat_id in sessions:
-                        del sessions[chat_id]
-
-            thread = threading.Thread(target=run_generation, daemon=True)
-            thread.start()
+        # ── EDIT: hanya ubah deskripsi, foto dipakai ulang ───────────────────
+        elif state == S_EDIT_DESC:
+            session["state"] = S_BUSY
+            bot.send_message(chat_id,
+                "⏳ *Sedang regenerate landing page...*\n"
+                "_Proses ini membutuhkan 30–90 detik, mohon tunggu._"
+            )
+            threading.Thread(
+                target=_run_generation, args=(chat_id, session, text), daemon=True
+            ).start()
 
         elif state == S_BUSY:
             bot.send_message(chat_id, "⏳ Masih sedang generate, harap tunggu...")
